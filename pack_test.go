@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/coalaura/spack"
 	"golang.org/x/text/language"
@@ -91,9 +92,18 @@ func TestPacker(t *testing.T) {
 		}
 	}
 
-	score := (1.0 - (float64(pack.Size()) / float64(collector.Size()))) * 100.0
+	pointerSizeN := 4 + 2 // not padded
+	pointerSizeA := int(unsafe.Sizeof(spack.Pointer{}))
 
-	t.Logf("Final compression ratio is %.4f%% in %s.\n", score, duration.Round(time.Millisecond))
+	packedSize := float64(pack.Size())
+	totalSizeN := packedSize + float64(pointerSizeN*len(pointers))
+	totalSizeA := packedSize + float64(pointerSizeA*len(pointers))
+
+	stringScore := (1.0 - (packedSize / float64(collector.Size()))) * 100.0
+	totalScoreN := (1.0 - (totalSizeN / float64(collector.Size()))) * 100.0
+	totalScoreA := (1.0 - (totalSizeA / float64(collector.Size()))) * 100.0
+
+	t.Logf("Final compression ratio is %.4f%% (strings) %.4f%% (total; not-aligned) %.4f%% (total; aligned) in %s.\n", stringScore, totalScoreN, totalScoreA, duration.Round(time.Millisecond))
 }
 
 func must(t *testing.T, err error) {

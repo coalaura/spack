@@ -15,7 +15,7 @@ import (
 const (
 	// MaxStringLen is the maximum allowed length of a string to be packed.
 	// This limit is constrained because the Pointer.Length field is a uint8.
-	MaxStringLen = math.MaxUint8 // Pointer.Length is uint8
+	MaxStringLen = math.MaxUint8
 
 	bucketSortParallelThreshold = 1 << 13
 	numBuckets                  = 65793
