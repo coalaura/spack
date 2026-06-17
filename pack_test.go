@@ -63,7 +63,7 @@ func TestPacker(t *testing.T) {
 
 	must(t, err)
 
-	t.Logf("Packed strings into %s bytes\n", printer.Sprintf("%d", pack.PackSize()))
+	t.Logf("Packed strings into %s bytes\n", printer.Sprintf("%d", pack.Len()))
 
 	peakAllocMB := float64(peakAlloc) / 1024 / 1024
 	baseAllocMB := float64(baseMem.Alloc) / 1024 / 1024
@@ -93,8 +93,8 @@ func TestPacker(t *testing.T) {
 		}
 	}
 
-	stringScore := (1.0 - (float64(pack.PackSize()) / float64(collector.Size()))) * 100.0
-	totalScoreA := (1.0 - (float64(pack.MemSize()) / float64(collector.Size()))) * 100.0
+	stringScore := (1.0 - (float64(pack.Len()) / float64(collector.Size()))) * 100.0
+	totalScoreA := (1.0 - (float64(pack.Size()) / float64(collector.Size()))) * 100.0
 
 	t.Logf("Final compression ratios (in %s):\n", duration.Round(time.Millisecond))
 	t.Logf("- strings (no pointers): %.2f%%\n", stringScore)

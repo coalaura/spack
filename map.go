@@ -327,20 +327,20 @@ func (s *PackedBlob) Pointers() []Pointer {
 	return s.pointers
 }
 
-// PackSize returns the total size of the packed bytes in the blob.
-func (s *PackedBlob) PackSize() int {
-	return len(s.blob)
-}
-
-// MemSize returns the total size of the packed bytes and pointers in memory.
-func (s *PackedBlob) MemSize() int {
-	return len(s.blob) + len(s.pointers)*int(unsafe.Sizeof(Pointer{}))
-}
-
 // Bytes returns the raw underlying byte slice of the PackedBlob.
 // This slice should not be modified.
 func (s *PackedBlob) Bytes() []byte {
 	return s.blob
+}
+
+// Len returns the total length of the packed byte slice in the blob.
+func (s *PackedBlob) Len() int {
+	return len(s.blob)
+}
+
+// Size returns the total size of the packed bytes and pointers in memory.
+func (s *PackedBlob) Size() int {
+	return len(s.blob) + len(s.pointers)*int(unsafe.Sizeof(Pointer{}))
 }
 
 func bucketSort(indices []int32, getBucket func(int32) int, compare func(int32, int32) int) {
