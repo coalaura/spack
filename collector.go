@@ -9,7 +9,7 @@ import (
 // to be packed together into a PackedBlob.
 type StringMap struct {
 	mx      sync.RWMutex
-	length  int
+	length  uintptr
 	entries []string
 }
 
@@ -27,7 +27,7 @@ func (s *StringMap) Add(str string) int {
 
 	s.entries = append(s.entries, str)
 
-	s.length += len(str)
+	s.length += uintptr(len(str))
 
 	return len(s.entries) - 1
 }
@@ -48,7 +48,7 @@ func (s *StringMap) AddUnsafe(b []byte) int {
 
 	s.entries = append(s.entries, str)
 
-	s.length += len(str)
+	s.length += uintptr(len(str))
 
 	return len(s.entries) - 1
 }
@@ -62,12 +62,17 @@ func (s *StringMap) At(index int) string {
 	return s.entries[index]
 }
 
-// Size returns the raw cumulative byte size of all strings added to the StringMap.
+// Size returns the total in-memory size of the entries slice and its strings.
 func (s *StringMap) Size() int {
 	s.mx.RLock()
 	defer s.mx.RUnlock()
 
-	return s.length
+	var dummy string
+
+	size := unsafe.Sizeof(s.entries)
+	size += uintptr(len(s.entries)) * unsafe.Sizeof(dummy)
+
+	return int(s.length + size)
 }
 
 // Length returns the number of strings currently collected in the StringMap.

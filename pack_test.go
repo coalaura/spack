@@ -92,7 +92,7 @@ func TestPacker(t *testing.T) {
 		}
 	}
 
-	pointerSizeN := 4 + 2 // not padded
+	pointerSizeN := 4 + 1 // not padded
 	pointerSizeA := int(unsafe.Sizeof(spack.Pointer{}))
 
 	packedSize := float64(pack.Size())
