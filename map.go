@@ -2,7 +2,6 @@ package spack
 
 import (
 	"cmp"
-	"fmt"
 	"io"
 	"math"
 	"runtime"
@@ -42,77 +41,82 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 		return &PackedBlob{}, nil, nil
 	}
 
+	// sort indices to deduplicate without map overhead
+	ids := make([]int32, length)
+
+	for i := range ids {
+		ids[i] = int32(i)
+	}
+
+	getPrefixBucket := func(str string) int {
+		ln := len(str)
+		if ln == 0 {
+			return 0
+		}
+
+		if ln == 1 {
+			return 1 + int(str[0])
+		}
+
+		_ = str[1] // BCE
+
+		return 257 + int(str[0])<<8 + int(str[1])
+	}
+
+	getPrefBucket := func(idx int32) int {
+		return getPrefixBucket(s.entries[idx])
+	}
+
+	compareNormal := func(idx1, idx2 int32) int {
+		return cmp.Compare(s.entries[idx1], s.entries[idx2])
+	}
+
+	bucketSort(ids, getPrefBucket, compareNormal)
+
+	// populate uniques from sorted array
+	uniqueRepresentative := make([]int32, 0, length/2)
+	uniqueID := make([]int32, length)
+
 	var (
-		index                = make(map[string]int32, length)
-		uniqueRepresentative = make([]int32, 0, length/2)
-		uniqueID             = make([]int32, length)
+		lastStr    string
+		currentUID int32 = -1
 	)
 
-	for i, str := range s.entries {
-		if len(str) > MaxStringLen {
-			return nil, nil, fmt.Errorf("spack: entry %d length %d exceeds max %d", i, len(str), MaxStringLen)
+	for _, origIdx := range ids {
+		str := s.entries[origIdx]
+		if currentUID == -1 || str != lastStr {
+			currentUID++
+
+			uniqueRepresentative = append(uniqueRepresentative, origIdx)
+
+			lastStr = str
 		}
 
-		id, ok := index[str]
-		if !ok {
-			id = int32(len(uniqueRepresentative))
-
-			index[str] = id
-
-			uniqueRepresentative = append(uniqueRepresentative, int32(i))
-		}
-
-		uniqueID[i] = id
+		uniqueID[origIdx] = currentUID
 	}
 
 	numUnique := int32(len(uniqueRepresentative))
 
-	index = nil // free
+	ids = nil // free
 
-	uniqStrings := make([]string, numUnique)
-
-	for i, idx := range uniqueRepresentative {
-		uniqStrings[i] = s.entries[idx]
+	getUniqString := func(uid int32) string {
+		return s.entries[uniqueRepresentative[uid]]
 	}
 
-	getPrefixBucket := func(s string) int {
-		ln := len(s)
+	getSuffixBucket := func(str string) int {
+		ln := len(str)
 		if ln == 0 {
 			return 0
 		}
 
 		if ln == 1 {
-			return 1 + int(s[0])
+			return 1 + int(str[0])
 		}
 
-		return 257 + int(s[0])<<8 + int(s[1])
-	}
+		_ = str[ln-1] // BCE
+		_ = str[ln-2]
 
-	getSuffixBucket := func(s string) int {
-		ln := len(s)
-		if ln == 0 {
-			return 0
-		}
-
-		if ln == 1 {
-			return 1 + int(s[0])
-		}
-
-		return 257 + int(s[ln-1])<<8 + int(s[ln-2])
-	}
-
-	prefSorted := make([]int32, numUnique)
-
-	for i := range prefSorted {
-		prefSorted[i] = int32(i)
-	}
-
-	getPrefBucketUnique := func(uid int32) int {
-		return getPrefixBucket(uniqStrings[uid])
-	}
-
-	compareNormalUnique := func(uid1, uid2 int32) int {
-		return cmp.Compare(uniqStrings[uid1], uniqStrings[uid2])
+		return 257 + int(str[ln-1])<<8 + int(str[ln-2])
 	}
 
 	suffSorted := make([]int32, numUnique)
@@ -122,24 +126,15 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 	}
 
 	getSuffBucketUnique := func(uid int32) int {
-		return getSuffixBucket(uniqStrings[uid])
+		return getSuffixBucket(getUniqString(uid))
 	}
 
 	compareReversedUnique := func(uid1, uid2 int32) int {
-		return compareReversed(uniqStrings[uid1], uniqStrings[uid2])
+		return compareReversed(getUniqString(uid1), getUniqString(uid2))
 	}
 
-	var wg sync.WaitGroup
-
-	wg.Go(func() {
-		bucketSort(prefSorted, getPrefBucketUnique, compareNormalUnique)
-	})
-
-	wg.Go(func() {
-		bucketSort(suffSorted, getSuffBucketUnique, compareReversedUnique)
-	})
-
-	wg.Wait()
+	// deduplication already sorted uniqueRepresentative alphabetically, only sort suffixes
+	bucketSort(suffSorted, getSuffBucketUnique, compareReversedUnique)
 
 	parent := make([]int32, numUnique)
 
@@ -149,39 +144,71 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 
 	parentOffset := make([]uint8, numUnique)
 
-	for i := 0; i < len(prefSorted)-1; i++ {
-		idxA := prefSorted[i]
-		idxB := prefSorted[i+1]
+	numCPU := runtime.GOMAXPROCS(0)
+	chunkSize := (int(numUnique) + numCPU - 1) / numCPU
 
-		strA := uniqStrings[idxA]
-		strB := uniqStrings[idxB]
+	var wg sync.WaitGroup
 
-		if strings.HasPrefix(strB, strA) {
-			parent[idxA] = idxB
-			parentOffset[idxA] = 0
+	// parallel prefix overlapping loops
+	for g := range numCPU {
+		start := g * chunkSize
+		end := min(start+chunkSize, int(numUnique)-1)
+
+		if start >= end {
+			continue
 		}
-	}
 
-	for i := 0; i < len(suffSorted)-1; i++ {
-		idxA := suffSorted[i]
-		idxB := suffSorted[i+1]
+		wg.Go(func() {
+			for i := start; i < end; i++ {
+				idxA := int32(i)
+				idxB := int32(i + 1)
 
-		if parent[idxA] == -1 {
-			strA := uniqStrings[idxA]
-			strB := uniqStrings[idxB]
+				strA := getUniqString(idxA)
+				strB := getUniqString(idxB)
 
-			if strings.HasSuffix(strB, strA) {
-				parent[idxA] = idxB
-				parentOffset[idxA] = uint8(len(strB) - len(strA))
+				if strings.HasPrefix(strB, strA) {
+					parent[idxA] = idxB
+				}
 			}
-		}
+		})
 	}
+
+	wg.Wait()
+
+	// parallel suffix overlapping loops
+	for g := range numCPU {
+		start := g * chunkSize
+		end := min(start+chunkSize, int(numUnique)-1)
+
+		if start >= end {
+			continue
+		}
+
+		wg.Go(func() {
+			for i := start; i < end; i++ {
+				idxA := suffSorted[i]
+				idxB := suffSorted[i+1]
+
+				if parent[idxA] == -1 {
+					strA := getUniqString(idxA)
+					strB := getUniqString(idxB)
+
+					if strings.HasSuffix(strB, strA) {
+						parent[idxA] = idxB
+						parentOffset[idxA] = uint8(len(strB) - len(strA))
+					}
+				}
+			}
+		})
+	}
+
+	wg.Wait()
 
 	var blobCap int
 
 	for i := range numUnique {
 		if parent[i] == -1 {
-			blobCap += len(uniqStrings[i])
+			blobCap += len(getUniqString(i))
 		}
 	}
 
@@ -193,21 +220,10 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 		resolvedOffset[i] = 0xFFFFFFFF
 	}
 
-	equalStrBytes := func(b []byte, str string) bool {
-		if len(b) != len(str) {
-			return false
-		}
-
-		if len(b) == 0 {
-			return true
-		}
-
-		return unsafe.String(&b[0], len(b)) == str
-	}
-
-	for _, idx := range prefSorted {
+	// overlap merging loop
+	for idx := range numUnique {
 		if parent[idx] == -1 {
-			str := uniqStrings[idx]
+			str := getUniqString(int32(idx))
 
 			var (
 				overlap    int
@@ -222,12 +238,17 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 				maxOverlap = 255
 			}
 
-			for k := maxOverlap; k > 0; k-- {
-				if blob[len(blob)-k] == str[0] && blob[len(blob)-1] == str[k-1] {
-					if equalStrBytes(blob[len(blob)-k:], str[:k]) {
-						overlap = k
+			if maxOverlap > 0 {
+				tail := blob[len(blob)-maxOverlap:]
 
-						break
+				for k := maxOverlap; k > 0; k-- {
+					if tail[maxOverlap-k] == str[0] && tail[maxOverlap-1] == str[k-1] {
+						sub := tail[maxOverlap-k:]
+						if unsafe.String(&sub[0], k) == str[:k] {
+							overlap = k
+
+							break
+						}
 					}
 				}
 			}
@@ -244,25 +265,33 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 		}
 	}
 
-	var resolve func(idx int32) uint32
+	for i := range numUnique {
+		idx := int32(i)
+		curr := idx
 
-	resolve = func(idx int32) uint32 {
-		if resolvedOffset[idx] != 0xFFFFFFFF {
-			return resolvedOffset[idx]
+		var (
+			path  [256]int32
+			depth int
+		)
+
+		for curr != -1 && resolvedOffset[curr] == 0xFFFFFFFF {
+			path[depth] = curr
+			depth++
+			curr = parent[curr]
 		}
 
-		pr := parent[idx]
-		off := uint32(parentOffset[idx])
+		var baseOffset uint32
 
-		prOff := resolve(pr)
+		if curr != -1 {
+			baseOffset = resolvedOffset[curr]
+		}
 
-		resolvedOffset[idx] = prOff + off
+		for j := depth - 1; j >= 0; j-- {
+			node := path[j]
+			baseOffset += uint32(parentOffset[node])
 
-		return resolvedOffset[idx]
-	}
-
-	for i := range numUnique {
-		resolve(i)
+			resolvedOffset[node] = baseOffset
+		}
 	}
 
 	pointers := make([]Pointer, length)

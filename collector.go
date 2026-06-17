@@ -1,9 +1,12 @@
 package spack
 
 import (
+	"fmt"
 	"sync"
 	"unsafe"
 )
+
+var ErrStringTooLong = fmt.Errorf("length exceeds max %d", MaxStringLen)
 
 // StringMap is a thread-safe collector for building a list of strings
 // to be packed together into a PackedBlob.
@@ -20,8 +23,12 @@ func NewStringMap(entries []string) *StringMap {
 	}
 }
 
-// Add appends a string to the StringMap and returns its assigned index.
-func (s *StringMap) Add(str string) int {
+// Add appends a string to the StringMap and returns its assigned index or ErrStringTooLong.
+func (s *StringMap) Add(str string) (int, error) {
+	if len(str) > MaxStringLen {
+		return 0, ErrStringTooLong
+	}
+
 	s.mx.Lock()
 	defer s.mx.Unlock()
 
@@ -29,16 +36,20 @@ func (s *StringMap) Add(str string) int {
 
 	s.length += uintptr(len(str))
 
-	return len(s.entries) - 1
+	return len(s.entries) - 1, nil
 }
 
 // AddUnsafe appends a string view of the provided byte slice to the StringMap
-// and returns its assigned index. It avoids allocations by using unsafe-casting
-// under the hood, but the caller must ensure the underlying byte slice is not
-// mutated after this call.
-func (s *StringMap) AddUnsafe(b []byte) int {
+// and returns its assigned index or ErrStringTooLong. It avoids allocations by
+// using unsafe-casting under the hood, but the caller must ensure the underlying
+// byte slice is not mutated after this call.
+func (s *StringMap) AddUnsafe(b []byte) (int, error) {
 	if len(b) == 0 {
 		return s.Add("")
+	}
+
+	if len(b) > MaxStringLen {
+		return 0, ErrStringTooLong
 	}
 
 	str := unsafe.String(&b[0], len(b))
@@ -50,7 +61,7 @@ func (s *StringMap) AddUnsafe(b []byte) int {
 
 	s.length += uintptr(len(str))
 
-	return len(s.entries) - 1
+	return len(s.entries) - 1, nil
 }
 
 // At returns the string at the specified index.
