@@ -18,7 +18,14 @@ type StringMap struct {
 
 // NewStringMap initializes a new StringMap with an optional pre-filled entries slice.
 func NewStringMap(entries []string) *StringMap {
+	var length uintptr
+
+	for _, str := range entries {
+		length += uintptr(len(str))
+	}
+
 	return &StringMap{
+		length:  length,
 		entries: entries,
 	}
 }
