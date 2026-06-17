@@ -63,7 +63,7 @@ func TestPacker(t *testing.T) {
 
 	must(t, err)
 
-	t.Logf("Packed strings into %s bytes\n", printer.Sprintf("%d", pack.Len()))
+	t.Logf("Packed strings into %s bytes, %s bytes in memory\n", printer.Sprintf("%d", pack.Len()), printer.Sprintf("%d", pack.Size()))
 
 	peakAllocMB := float64(peakAlloc) / 1024 / 1024
 	baseAllocMB := float64(baseMem.Alloc) / 1024 / 1024
