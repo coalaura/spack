@@ -287,10 +287,10 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 	return &PackedBlob{blob: blob}, pointers, nil
 }
 
-// Get retrieves a string from the PackedBlob using the provided Pointer.
-// If the Pointer's offset and length exceed the bounds of the blob,
-// it returns an empty string and io.ErrUnexpectedEOF.
-func (s *PackedBlob) Get(p Pointer) (string, error) {
+// GetUnsafe returns a zero-copy string pointing directly into the blob's memory.
+// It is fast but unsafe: the returned string's lifetime is tied to the blob,
+// and it will reflect any future modifications made to the underlying slice.
+func (s *PackedBlob) GetUnsafe(p Pointer) (string, error) {
 	if int(p.Offset)+int(p.Length) > len(s.blob) {
 		return "", io.ErrUnexpectedEOF
 	}
@@ -300,6 +300,25 @@ func (s *PackedBlob) Get(p Pointer) (string, error) {
 	}
 
 	return unsafe.String(&s.blob[p.Offset], p.Length), nil
+}
+
+// Get returns a copied, independent string from the PackedBlob.
+// It allocates a new underlying buffer to ensure the returned string can
+// safely outlive the blob and remains isolated from any future mutations.
+func (s *PackedBlob) Get(p Pointer) (string, error) {
+	if int(p.Offset)+int(p.Length) > len(s.blob) {
+		return "", io.ErrUnexpectedEOF
+	}
+
+	if p.Length == 0 {
+		return "", nil
+	}
+
+	buf := make([]byte, p.Length)
+
+	copy(buf, s.blob[p.Offset:p.Offset+uint32(p.Length)])
+
+	return unsafe.String(&buf[0], p.Length), nil
 }
 
 // Size returns the total size of the packed bytes in the blob.
