@@ -16,6 +16,7 @@ const (
 	MaxStringLen = math.MaxUint8
 
 	numPrefixBuckets = 65793
+	numSortBuckets   = 65793
 )
 
 // PackedBlob holds a single concatenated slice of bytes containing
@@ -520,10 +521,9 @@ func bucketSortKeys(keys []sortKey, entries []string) {
 		return
 	}
 
-	const numBuckets = 65793
-
 	getBucket := func(k sortKey) int {
 		p := k.prefix
+
 		b1 := byte(p >> 56)
 		b2 := byte(p >> 48)
 
@@ -536,20 +536,24 @@ func bucketSortKeys(keys []sortKey, entries []string) {
 		return 257 + int(b1)<<8 + int(b2)
 	}
 
-	counts := make([]int32, numBuckets)
+	counts := make([]int32, numSortBuckets)
+
 	for i := range keys {
 		counts[getBucket(keys[i])]++
 	}
 
-	offsets := make([]int32, numBuckets)
+	offsets := make([]int32, numSortBuckets)
+
 	var sum int32
+
 	for i := range counts {
 		offsets[i] = sum
 		sum += counts[i]
 	}
 
 	temp := make([]sortKey, length)
-	pos := make([]int32, numBuckets)
+
+	pos := make([]int32, numSortBuckets)
 	copy(pos, offsets)
 
 	for i := range keys {
@@ -561,6 +565,7 @@ func bucketSortKeys(keys []sortKey, entries []string) {
 	copy(keys, temp)
 
 	bucketIdxChan := make(chan int, 2048)
+
 	go func() {
 		for i := range counts {
 			if counts[i] >= 2 {
@@ -571,6 +576,7 @@ func bucketSortKeys(keys []sortKey, entries []string) {
 	}()
 
 	var wg sync.WaitGroup
+
 	numCPU := runtime.GOMAXPROCS(0)
 
 	for range numCPU {
@@ -595,36 +601,41 @@ func bucketSortSuffixKeys(keys []suffixKey, uniqueRepresentative []int32, entrie
 		return
 	}
 
-	const numBuckets = 65793
-
 	getBucket := func(k suffixKey) int {
 		s := k.suffix
+
 		b1 := byte(s >> 56)
 		b2 := byte(s >> 48)
 
 		if b1 == 0 {
 			return 0
 		}
+
 		if b2 == 0 {
 			return 1 + int(b1)
 		}
+
 		return 257 + int(b1)<<8 + int(b2)
 	}
 
-	counts := make([]int32, numBuckets)
+	counts := make([]int32, numSortBuckets)
+
 	for i := range keys {
 		counts[getBucket(keys[i])]++
 	}
 
-	offsets := make([]int32, numBuckets)
+	offsets := make([]int32, numSortBuckets)
+
 	var sum int32
+
 	for i := range counts {
 		offsets[i] = sum
 		sum += counts[i]
 	}
 
 	temp := make([]suffixKey, length)
-	pos := make([]int32, numBuckets)
+
+	pos := make([]int32, numSortBuckets)
 	copy(pos, offsets)
 
 	for i := range keys {
@@ -636,16 +647,19 @@ func bucketSortSuffixKeys(keys []suffixKey, uniqueRepresentative []int32, entrie
 	copy(keys, temp)
 
 	bucketIdxChan := make(chan int, 2048)
+
 	go func() {
 		for i := range counts {
 			if counts[i] >= 2 {
 				bucketIdxChan <- i
 			}
 		}
+
 		close(bucketIdxChan)
 	}()
 
 	var wg sync.WaitGroup
+
 	numCPU := runtime.GOMAXPROCS(0)
 
 	for range numCPU {
