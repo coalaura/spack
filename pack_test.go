@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"math/rand/v2"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -12,14 +13,19 @@ import (
 	"golang.org/x/text/message"
 )
 
-const SourceFile = "C:\\Users\\Laura\\joaat.sh\\strings.txt"
+type resourceMonitor struct {
+	stop chan struct{}
+	done chan struct{}
+
+	peakAlloc uint64
+}
 
 func TestPacker(t *testing.T) {
 	printer := message.NewPrinter(language.English)
 
 	t.Log("Reading strings...")
 
-	file, err := os.OpenFile(SourceFile, os.O_RDONLY, 0)
+	file, err := os.OpenFile("strings.txt", os.O_RDONLY, 0)
 	must(t, err)
 
 	defer file.Close()
@@ -40,15 +46,30 @@ func TestPacker(t *testing.T) {
 
 	t.Log("Packing strings...")
 
+	runtime.GC()
+
+	var baseMem runtime.MemStats
+
+	runtime.ReadMemStats(&baseMem)
+
+	monitor := startResourceMonitor(1 * time.Millisecond)
+
 	startTime := time.Now()
 
 	pack, pointers, err := collector.Pack()
 
 	duration := time.Since(startTime)
+	peakAlloc := monitor.Stop()
 
 	must(t, err)
 
 	t.Logf("Packed strings into %s bytes\n", printer.Sprintf("%d", pack.Size()))
+
+	peakAllocMB := float64(peakAlloc) / 1024 / 1024
+	baseAllocMB := float64(baseMem.Alloc) / 1024 / 1024
+	addedAllocMB := max(0, peakAllocMB-baseAllocMB)
+
+	t.Logf("Peak Heap Memory: %.2f MB (Baseline: %.2f MB, Net Added: %.2f MB)\n", peakAllocMB, baseAllocMB, addedAllocMB)
 
 	if len(pointers) != collector.Length() {
 		t.Fatalf("Expected %s pointers but got %s\n", printer.Sprintf("%d", collector.Length()), printer.Sprintf("%d", len(pointers)))
@@ -81,4 +102,42 @@ func must(t *testing.T, err error) {
 	}
 
 	t.Fatal(err)
+}
+
+func startResourceMonitor(interval time.Duration) *resourceMonitor {
+	m := &resourceMonitor{
+		stop: make(chan struct{}),
+		done: make(chan struct{}),
+	}
+
+	go m.run(interval)
+	return m
+}
+
+func (m *resourceMonitor) run(interval time.Duration) {
+	defer close(m.done)
+
+	var memStats runtime.MemStats
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.stop:
+			return
+		case <-ticker.C:
+			runtime.ReadMemStats(&memStats)
+			if memStats.Alloc > m.peakAlloc {
+				m.peakAlloc = memStats.Alloc
+			}
+		}
+	}
+}
+
+func (m *resourceMonitor) Stop() uint64 {
+	close(m.stop)
+	<-m.done
+
+	return m.peakAlloc
 }
