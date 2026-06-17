@@ -92,21 +92,17 @@ func TestPacker(t *testing.T) {
 		}
 	}
 
-	pointerSizeN := 4 + 1 // not padded
-	pointerSizeA := int(unsafe.Sizeof(spack.Pointer{}))
+	pointerSize := int(unsafe.Sizeof(spack.Pointer{}))
 
 	packedSize := float64(pack.Size())
-	totalSizeN := packedSize + float64(pointerSizeN*len(pointers))
-	totalSizeA := packedSize + float64(pointerSizeA*len(pointers))
+	totalSize := packedSize + float64(pointerSize*len(pointers))
 
 	stringScore := (1.0 - (packedSize / float64(collector.Size()))) * 100.0
-	totalScoreN := (1.0 - (totalSizeN / float64(collector.Size()))) * 100.0
-	totalScoreA := (1.0 - (totalSizeA / float64(collector.Size()))) * 100.0
+	totalScoreA := (1.0 - (totalSize / float64(collector.Size()))) * 100.0
 
 	t.Logf("Final compression ratios (in %s):\n", duration.Round(time.Millisecond))
 	t.Logf("- strings (no pointers): %.2f%%\n", stringScore)
-	t.Logf("- total (not padded)   : %.2f%%\n", totalScoreN)
-	t.Logf("- total (padded)       : %.2f%%\n", totalScoreA)
+	t.Logf("- total (with pointers): %.2f%%\n", totalScoreA)
 
 }
 

@@ -21,14 +21,6 @@ const (
 	numBuckets                  = 65793
 )
 
-// Pointer represents the location and length of a packed string within a PackedBlob.
-type Pointer struct {
-	// Offset is the byte offset of the string within the PackedBlob.
-	Offset uint32
-	// Length is the length of the string in bytes.
-	Length uint8
-}
-
 // PackedBlob holds a single concatenated slice of bytes containing
 // all the packed strings. Strings are retrieved using a Pointer.
 type PackedBlob struct {
@@ -278,10 +270,7 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 	for i := range s.entries {
 		uid := uniqueID[i]
 
-		pointers[i] = Pointer{
-			Offset: resolvedOffset[uid],
-			Length: uint8(len(s.entries[i])),
-		}
+		pointers[i] = NewPointer(resolvedOffset[uid], uint8(len(s.entries[i])))
 	}
 
 	return &PackedBlob{blob: blob}, pointers, nil
@@ -291,34 +280,40 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 // It is fast but unsafe: the returned string's lifetime is tied to the blob,
 // and it will reflect any future modifications made to the underlying slice.
 func (s *PackedBlob) GetUnsafe(p Pointer) (string, error) {
-	if int(p.Offset)+int(p.Length) > len(s.blob) {
+	offset := p.Offset()
+	length := p.Length()
+
+	if int(offset)+int(length) > len(s.blob) {
 		return "", io.ErrUnexpectedEOF
 	}
 
-	if p.Length == 0 {
+	if length == 0 {
 		return "", nil
 	}
 
-	return unsafe.String(&s.blob[p.Offset], p.Length), nil
+	return unsafe.String(&s.blob[offset], length), nil
 }
 
 // Get returns a copied, independent string from the PackedBlob.
 // It allocates a new underlying buffer to ensure the returned string can
 // safely outlive the blob and remains isolated from any future mutations.
 func (s *PackedBlob) Get(p Pointer) (string, error) {
-	if int(p.Offset)+int(p.Length) > len(s.blob) {
+	offset := p.Offset()
+	length := p.Length()
+
+	if int(offset)+int(length) > len(s.blob) {
 		return "", io.ErrUnexpectedEOF
 	}
 
-	if p.Length == 0 {
+	if length == 0 {
 		return "", nil
 	}
 
-	buf := make([]byte, p.Length)
+	buf := make([]byte, length)
 
-	copy(buf, s.blob[p.Offset:p.Offset+uint32(p.Length)])
+	copy(buf, s.blob[offset:offset+uint32(length)])
 
-	return unsafe.String(&buf[0], p.Length), nil
+	return unsafe.String(&buf[0], length), nil
 }
 
 // Size returns the total size of the packed bytes in the blob.
