@@ -2,7 +2,6 @@ package spack
 
 import (
 	"cmp"
-	"io"
 	"math"
 	"runtime"
 	"slices"
@@ -308,41 +307,15 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 // GetUnsafe returns a zero-copy string pointing directly into the blob's memory.
 // It is fast but unsafe: the returned string's lifetime is tied to the blob,
 // and it will reflect any future modifications made to the underlying slice.
-func (s *PackedBlob) GetUnsafe(p Pointer) (string, error) {
-	offset := p.Offset()
-	length := p.Length()
-
-	if int(offset)+int(length) > len(s.blob) {
-		return "", io.ErrUnexpectedEOF
-	}
-
-	if length == 0 {
-		return "", nil
-	}
-
-	return unsafe.String(&s.blob[offset], length), nil
+func (s *PackedBlob) GetUnsafe(pointer Pointer) (string, error) {
+	return GetStringUnsafe(s.blob, pointer)
 }
 
 // Get returns a copied, independent string from the PackedBlob.
 // It allocates a new underlying buffer to ensure the returned string can
 // safely outlive the blob and remains isolated from any future mutations.
-func (s *PackedBlob) Get(p Pointer) (string, error) {
-	offset := p.Offset()
-	length := p.Length()
-
-	if int(offset)+int(length) > len(s.blob) {
-		return "", io.ErrUnexpectedEOF
-	}
-
-	if length == 0 {
-		return "", nil
-	}
-
-	buf := make([]byte, length)
-
-	copy(buf, s.blob[offset:offset+uint32(length)])
-
-	return unsafe.String(&buf[0], length), nil
+func (s *PackedBlob) Get(pointer Pointer) (string, error) {
+	return GetString(s.blob, pointer)
 }
 
 // Size returns the total size of the packed bytes in the blob.

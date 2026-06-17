@@ -1,6 +1,9 @@
 package spack
 
-import "io"
+import (
+	"io"
+	"unsafe"
+)
 
 // Pointer represents the location and length of a packed string within a PackedBlob.
 // To maximize memory compression, it is packed as a 5-byte array to avoid struct alignment padding.
@@ -53,4 +56,44 @@ func PointerFromSlice(b []byte) (Pointer, error) {
 	copy(arr[:], b[:5])
 
 	return Pointer{buf: arr}, nil
+}
+
+// GetUnsafe returns a zero-copy string pointing directly into the blob's memory.
+// It is fast but unsafe: the returned string's lifetime is tied to the blob,
+// and it will reflect any future modifications made to the underlying slice.
+func GetStringUnsafe(packed []byte, pointer Pointer) (string, error) {
+	offset := pointer.Offset()
+	length := pointer.Length()
+
+	if int(offset)+int(length) > len(packed) {
+		return "", io.ErrUnexpectedEOF
+	}
+
+	if length == 0 {
+		return "", nil
+	}
+
+	return unsafe.String(&packed[offset], length), nil
+}
+
+// Get returns a copied, independent string from the packed blob.
+// It allocates a new underlying buffer to ensure the returned string can
+// safely outlive the blob and remains isolated from any future mutations.
+func GetString(packed []byte, pointer Pointer) (string, error) {
+	offset := pointer.Offset()
+	length := pointer.Length()
+
+	if int(offset)+int(length) > len(packed) {
+		return "", io.ErrUnexpectedEOF
+	}
+
+	if length == 0 {
+		return "", nil
+	}
+
+	buf := make([]byte, length)
+
+	copy(buf, packed[offset:offset+uint32(length)])
+
+	return unsafe.String(&buf[0], length), nil
 }
