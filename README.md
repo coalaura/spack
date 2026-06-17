@@ -13,9 +13,9 @@ The resulting blob is flat, coherent and highly optimized for writing to a file 
 
 ## Performance
 
-Packing 81.8 million strings (which originally occupy 3.05 GB of heap space for slice/string headers and characters) takes about 44 seconds.
+Packing 81.8 million strings (which originally occupy 3.05 GB of heap space for slice/string headers and characters) takes about 30 seconds.
 
-The process outputs a flat 1.20 GB byte blob, which is a 60.73% reduction in raw string data. Including the compact 5-byte pointers, the total in-memory size is 1.61 GB, yielding an overall 47.30% memory footprint reduction. The compression/packing stage runs with a net peak heap allocation of about 4.4 GB over the dataset baseline.
+The process outputs a flat 1.20 GB byte blob, which is a 61.08% reduction in raw string data. Including the compact 5-byte pointers, the total in-memory size is 1.61 GB, yielding an overall 47.66% memory footprint reduction. The compression/packing stage runs with a net peak heap allocation of about 3.7 GB over the dataset baseline.
 
 ## Usage
 
