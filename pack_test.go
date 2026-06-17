@@ -78,7 +78,7 @@ func TestPacker(t *testing.T) {
 
 	t.Log("Testing random read...")
 
-	for range 100 {
+	for range 4096 {
 		idx := rand.IntN(collector.Length())
 
 		expected := collector.At(idx)
