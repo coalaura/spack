@@ -22,7 +22,8 @@ const (
 // PackedBlob holds a single concatenated slice of bytes containing
 // all the packed strings. Strings are retrieved using a Pointer.
 type PackedBlob struct {
-	blob []byte
+	pointers []Pointer
+	blob     []byte
 }
 
 // Pack compresses all strings currently collected in the StringMap into a PackedBlob.
@@ -31,13 +32,13 @@ type PackedBlob struct {
 // mapping each original string's index to its position in the blob.
 //
 // If any collected string exceeds MaxStringLen, an error is returned.
-func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
+func (s *StringMap) Pack() (*PackedBlob, error) {
 	s.mx.RLock()
 	defer s.mx.RUnlock()
 
 	length := len(s.entries)
 	if length == 0 {
-		return &PackedBlob{}, nil, nil
+		return &PackedBlob{}, nil
 	}
 
 	// sort indices to deduplicate without map overhead
@@ -301,26 +302,39 @@ func (s *StringMap) Pack() (*PackedBlob, []Pointer, error) {
 		pointers[i] = NewPointer(resolvedOffset[uid], uint8(len(s.entries[i])))
 	}
 
-	return &PackedBlob{blob: blob}, pointers, nil
+	return &PackedBlob{
+		pointers: pointers,
+		blob:     blob,
+	}, nil
 }
 
-// GetUnsafe returns a zero-copy string pointing directly into the blob's memory.
+// GetStringUnsafe returns a zero-copy string pointing directly into the blob's memory.
 // It is fast but unsafe: the returned string's lifetime is tied to the blob,
 // and it will reflect any future modifications made to the underlying slice.
-func (s *PackedBlob) GetUnsafe(pointer Pointer) (string, error) {
+func (s *PackedBlob) GetStringUnsafe(pointer Pointer) (string, error) {
 	return GetStringUnsafe(s.blob, pointer)
 }
 
-// Get returns a copied, independent string from the PackedBlob.
+// GetString returns a copied, independent string from the PackedBlob.
 // It allocates a new underlying buffer to ensure the returned string can
 // safely outlive the blob and remains isolated from any future mutations.
-func (s *PackedBlob) Get(pointer Pointer) (string, error) {
+func (s *PackedBlob) GetString(pointer Pointer) (string, error) {
 	return GetString(s.blob, pointer)
 }
 
-// Size returns the total size of the packed bytes in the blob.
-func (s *PackedBlob) Size() int {
+// Pointers returns all pointers.
+func (s *PackedBlob) Pointers() []Pointer {
+	return s.pointers
+}
+
+// PackSize returns the total size of the packed bytes in the blob.
+func (s *PackedBlob) PackSize() int {
 	return len(s.blob)
+}
+
+// MemSize returns the total size of the packed bytes and pointers in memory.
+func (s *PackedBlob) MemSize() int {
+	return len(s.blob) + len(s.pointers)*int(unsafe.Sizeof(Pointer{}))
 }
 
 // Bytes returns the raw underlying byte slice of the PackedBlob.

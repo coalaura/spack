@@ -64,9 +64,9 @@ func (s *StringMap) AddUnsafe(b []byte) (int, error) {
 	return len(s.entries) - 1, nil
 }
 
-// At returns the string at the specified index.
+// GetString returns the string at the specified index.
 // It will panic if the index is out of bounds.
-func (s *StringMap) At(index int) string {
+func (s *StringMap) GetString(index int) string {
 	s.mx.RLock()
 	defer s.mx.RUnlock()
 

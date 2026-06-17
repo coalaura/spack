@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/coalaura/spack"
 	"golang.org/x/text/language"
@@ -57,20 +56,22 @@ func TestPacker(t *testing.T) {
 
 	startTime := time.Now()
 
-	pack, pointers, err := collector.Pack()
+	pack, err := collector.Pack()
 
 	duration := time.Since(startTime)
 	peakAlloc := monitor.Stop()
 
 	must(t, err)
 
-	t.Logf("Packed strings into %s bytes\n", printer.Sprintf("%d", pack.Size()))
+	t.Logf("Packed strings into %s bytes\n", printer.Sprintf("%d", pack.PackSize()))
 
 	peakAllocMB := float64(peakAlloc) / 1024 / 1024
 	baseAllocMB := float64(baseMem.Alloc) / 1024 / 1024
 	addedAllocMB := max(0, peakAllocMB-baseAllocMB)
 
 	t.Logf("Peak Heap Memory: %.2f MB (Baseline: %.2f MB, Net Added: %.2f MB)\n", peakAllocMB, baseAllocMB, addedAllocMB)
+
+	pointers := pack.Pointers()
 
 	if len(pointers) != collector.Length() {
 		t.Fatalf("Expected %s pointers but got %s\n", printer.Sprintf("%d", collector.Length()), printer.Sprintf("%d", len(pointers)))
@@ -81,10 +82,10 @@ func TestPacker(t *testing.T) {
 	for range 4096 {
 		idx := rand.IntN(collector.Length())
 
-		expected := collector.At(idx)
+		expected := collector.GetString(idx)
 		pointer := pointers[idx]
 
-		actual, err := pack.Get(pointer)
+		actual, err := pack.GetStringUnsafe(pointer)
 		must(t, err)
 
 		if actual != expected {
@@ -92,13 +93,8 @@ func TestPacker(t *testing.T) {
 		}
 	}
 
-	pointerSize := int(unsafe.Sizeof(spack.Pointer{}))
-
-	packedSize := float64(pack.Size())
-	totalSize := packedSize + float64(pointerSize*len(pointers))
-
-	stringScore := (1.0 - (packedSize / float64(collector.Size()))) * 100.0
-	totalScoreA := (1.0 - (totalSize / float64(collector.Size()))) * 100.0
+	stringScore := (1.0 - (float64(pack.PackSize()) / float64(collector.Size()))) * 100.0
+	totalScoreA := (1.0 - (float64(pack.MemSize()) / float64(collector.Size()))) * 100.0
 
 	t.Logf("Final compression ratios (in %s):\n", duration.Round(time.Millisecond))
 	t.Logf("- strings (no pointers): %.2f%%\n", stringScore)
