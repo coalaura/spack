@@ -103,7 +103,11 @@ func TestPacker(t *testing.T) {
 	totalScoreN := (1.0 - (totalSizeN / float64(collector.Size()))) * 100.0
 	totalScoreA := (1.0 - (totalSizeA / float64(collector.Size()))) * 100.0
 
-	t.Logf("Final compression ratio is %.4f%% (strings) %.4f%% (total; not-aligned) %.4f%% (total; aligned) in %s.\n", stringScore, totalScoreN, totalScoreA, duration.Round(time.Millisecond))
+	t.Logf("Final compression ratios (in %s):\n", duration.Round(time.Millisecond))
+	t.Logf("- strings (no pointers): %.2f%%\n", stringScore)
+	t.Logf("- total (not padded)   : %.2f%%\n", totalScoreN)
+	t.Logf("- total (padded)       : %.2f%%\n", totalScoreA)
+
 }
 
 func must(t *testing.T, err error) {
