@@ -1,0 +1,91 @@
+package spack
+
+import (
+	"sync"
+	"unsafe"
+)
+
+// StringMap is a thread-safe collector for building a list of strings
+// to be packed together into a PackedBlob.
+type StringMap struct {
+	mx      sync.RWMutex
+	length  int
+	entries []string
+}
+
+// NewStringMap initializes a new StringMap with an optional pre-filled entries slice.
+func NewStringMap(entries []string) *StringMap {
+	return &StringMap{
+		entries: entries,
+	}
+}
+
+// Add appends a string to the StringMap and returns its assigned index.
+func (s *StringMap) Add(str string) int {
+	s.mx.Lock()
+	defer s.mx.Unlock()
+
+	s.entries = append(s.entries, str)
+
+	s.length += len(str)
+
+	return len(s.entries) - 1
+}
+
+// AddUnsafe appends a string view of the provided byte slice to the StringMap
+// and returns its assigned index. It avoids allocations by using unsafe-casting
+// under the hood, but the caller must ensure the underlying byte slice is not
+// mutated after this call.
+func (s *StringMap) AddUnsafe(b []byte) int {
+	if len(b) == 0 {
+		return s.Add("")
+	}
+
+	str := unsafe.String(&b[0], len(b))
+
+	s.mx.Lock()
+	defer s.mx.Unlock()
+
+	s.entries = append(s.entries, str)
+
+	s.length += len(str)
+
+	return len(s.entries) - 1
+}
+
+// At returns the string at the specified index.
+// It will panic if the index is out of bounds.
+func (s *StringMap) At(index int) string {
+	s.mx.RLock()
+	defer s.mx.RUnlock()
+
+	return s.entries[index]
+}
+
+// Size returns the raw cumulative byte size of all strings added to the StringMap.
+func (s *StringMap) Size() int {
+	s.mx.RLock()
+	defer s.mx.RUnlock()
+
+	return s.length
+}
+
+// Length returns the number of strings currently collected in the StringMap.
+func (s *StringMap) Length() int {
+	s.mx.RLock()
+	defer s.mx.RUnlock()
+
+	return len(s.entries)
+}
+
+// Strings returns the underlying slice of collected strings.
+//
+// WARNING: This returns a direct reference to the internal slice.
+// Modifying the returned slice or accessing it concurrently while other
+// goroutines call Add or AddUnsafe is not thread-safe and will cause data races.
+func (s *StringMap) Strings() []string {
+	s.mx.RLock()
+	defer s.mx.RUnlock()
+
+	return s.entries
+}
