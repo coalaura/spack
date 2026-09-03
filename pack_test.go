@@ -117,6 +117,7 @@ func startResourceMonitor(interval time.Duration) *resourceMonitor {
 	}
 
 	go m.run(interval)
+
 	return m
 }
 
@@ -134,6 +135,7 @@ func (m *resourceMonitor) run(interval time.Duration) {
 			return
 		case <-ticker.C:
 			runtime.ReadMemStats(&memStats)
+
 			if memStats.Alloc > m.peakAlloc {
 				m.peakAlloc = memStats.Alloc
 			}
