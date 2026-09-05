@@ -99,49 +99,12 @@ func (s *StringMap) Pack() (*PackedBlob, error) {
 		},
 	)
 
-	sortBuckets(keys, offsets, numCPU, func(a, b uint64) int {
+	sortPackedBuckets(keys, offsets, numCPU, func(a, b uint64) int {
 		return compareSortWord(a, b, entries)
 	})
 
-	startsUnique := func(i int) bool {
-		if i == 0 {
-			return true
-		}
-
-		prev := keys[i-1]
-		cur := keys[i]
-
-		if prev>>32 != cur>>32 {
-			return true
-		}
-
-		// Adjacent records can straddle a bucket boundary. Their cached
-		// bytes omit the bucket, so equality must check the whole string.
-		return entries[uint32(prev)] != entries[uint32(cur)]
-	}
-
-	chunkSize := 1 + (length-1)/numCPU
-	numChunks := 1 + (length-1)/chunkSize
-
-	chunkBase := make([]int32, numChunks+1)
-
-	parallelChunks(length, chunkSize, func(c, start, end int) {
-		var count int32
-
-		for i := start; i < end; i++ {
-			if startsUnique(i) {
-				count++
-			}
-		}
-
-		chunkBase[c+1] = count
-	})
-
-	for c := range numChunks {
-		chunkBase[c+1] += chunkBase[c]
-	}
-
-	numUnique := chunkBase[numChunks]
+	chunkSize, chunkBase := markUniqueWords(keys, entries, numCPU)
+	numUnique := chunkBase[len(chunkBase)-1]
 
 	var (
 		pointers             = make([]Pointer, length)
@@ -154,10 +117,12 @@ func (s *StringMap) Pack() (*PackedBlob, error) {
 		uid := chunkBase[c] - 1
 
 		for i := start; i < end; i++ {
-			input := uint32(keys[i])
+			word := keys[i]
+
+			input := uint32(word) & sortWordIndexMask
 			str := entries[input]
 
-			if startsUnique(i) {
+			if word&sortWordUnique != 0 {
 				uid++
 
 				uniqueRepresentative[uid] = int32(input)
@@ -204,7 +169,7 @@ func (s *StringMap) Pack() (*PackedBlob, error) {
 		},
 	)
 
-	sortBuckets(suffKeys, offsets, numCPU, func(a, b uint64) int {
+	sortPackedBuckets(suffKeys, offsets, numCPU, func(a, b uint64) int {
 		if a>>32 != b>>32 {
 			return cmp.Compare(a>>32, b>>32)
 		}
