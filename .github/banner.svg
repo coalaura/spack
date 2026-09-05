@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+	width="1080" height="176" viewBox="0 0 1080 176"
+	role="img" aria-labelledby="title description">
+	<title id="title">spack</title>
+	<desc id="description">
+		Many strings. One contiguous blob.
+		A Go string packing library with five-byte pointers,
+		constant-time lookups and zero-copy reads.
+	</desc>
+
+	<style>
+    text {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      fill: #344054;
+    }
+
+    .name {
+      font-size: 58px;
+      font-weight: 700;
+      letter-spacing: -2px;
+    }
+
+    .tagline {
+      font-size: 19px;
+      letter-spacing: -0.2px;
+    }
+
+    .features {
+      font-size: 13px;
+      fill: #667085;
+    }
+
+    .label {
+      font-size: 12px;
+      fill: #667085;
+      letter-spacing: 0.3px;
+    }
+
+    .original { fill: #a9b5c5; }
+    .blob { fill: #8db9a6; }
+    .pointers { fill: #d5a3ad; }
+
+    .arrow {
+      fill: none;
+      stroke: #8895a7;
+      stroke-width: 1.5;
+      stroke-linecap: square;
+      stroke-linejoin: miter;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      text { fill: #e0e5ec; }
+      .features, .label { fill: #a8b2c0; }
+      .arrow { stroke: #a8b2c0; }
+    }
+  </style>
+
+	<!-- Transparent background. -->
+	<text x="24" y="77" class="name">spack</text>
+	<text x="26" y="111" class="tagline">Many strings. One contiguous blob.</text>
+	<text x="26" y="139" class="features">
+		Go · 5-byte pointers · O(1) lookups · zero-copy reads
+	</text>
+
+	<!-- Abstract packing diagram; not a quantitative comparison. -->
+	<g aria-hidden="true">
+		<text x="638" y="37" class="label">strings</text>
+
+		<rect x="638" y="50" width="130" height="22" rx="1" class="original" />
+		<rect x="638" y="82" width="104" height="22" rx="1" class="original" />
+		<rect x="638" y="114" width="118" height="22" rx="1" class="original" />
+
+		<path d="M792 93 H826 M819 86 L826 93 L819 100" class="arrow" />
+
+		<text x="854" y="37" class="label">blob + pointers</text>
+
+		<rect x="854" y="65" width="198" height="30" rx="1" class="blob" />
+
+		<g class="pointers">
+			<rect x="854" y="109" width="31" height="17" rx="1" />
+			<rect x="887" y="109" width="31" height="17" rx="1" />
+			<rect x="920" y="109" width="31" height="17" rx="1" />
+			<rect x="953" y="109" width="31" height="17" rx="1" />
+			<rect x="986" y="109" width="31" height="17" rx="1" />
+			<rect x="1019" y="109" width="33" height="17" rx="1" />
+		</g>
+	</g>
+</svg>

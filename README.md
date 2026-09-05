@@ -1,6 +1,6 @@
-# spack
+![spack - Many strings. One contiguous blob.](.github/banner.svg)
 
-spack is a minimal, high-performance string pack library for Go. It compresses a collection of strings into a single, contiguous byte slice using prefix and suffix overlap deduplication.
+spack is a minimal, high-performance string pack library for Go. It packs a collection of strings into a single, contiguous byte slice by deduplicating equal values and exploiting prefix, suffix, internal substring and suffix-to-prefix overlap relationships.
 
 The resulting blob is flat, coherent and highly optimized for writing to a file and memory mapping (mmap).
 
@@ -13,9 +13,35 @@ The resulting blob is flat, coherent and highly optimized for writing to a file 
 
 ## Performance
 
-Packing 81.8 million strings (which originally occupy 3.05 GB of heap space for slice/string headers and characters) takes about 38 seconds.
+`spack` is benchmarked against several large, real-world corpora with substantially different string distributions:
 
-The process outputs a flat 1.12 GB byte blob, which is a 63.16% reduction in raw string data. Including the compact 5-byte pointers, the total in-memory size is 1.53 GB, yielding an overall 49.74% memory footprint reduction. The compression/packing stage runs with a net peak heap allocation of about 4.1 GB over the dataset baseline.
+* **Common Crawl URLs:** 50 million URL occurrences from the CC-MAIN-2026-34 columnar URL index. Duplicate occurrences are preserved and URLs are not normalized.
+* **joaat.sh GTA V extraction:** 81.8 million unique strings extracted from 41.3 GB of GTA V/FiveM-oriented source code, scripts, build data and hash databases. This represents the original workload for which `spack` was developed.
+* **OpenStreetMap tag values:** 50 million tag-value occurrences from Geofabrik extracts of Germany, Japan, Brazil and South Africa, balanced at 12.5 million values per region. Tag keys are excluded and duplicate values are preserved.
+* **Wikidata labels and aliases:** 50 million multilingual label and alias occurrences from the 2026-08-31 entity dump. Descriptions, entity IDs and language codes are excluded; duplicate occurrences are preserved.
+
+Values longer than 255 bytes are rejected rather than truncated.
+
+| Corpus | Inputs | Logical input | Blob | Packed total | Blob-only saving | Total saving | Pack time |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Common Crawl URLs | 50.0M | 4.333 GB | 3.430 GB | 3.680 GB | 20.85% | 15.08% | 23.567 s |
+| joaat.sh GTA V extraction | 81.8M | 3.048 GB | 1.123 GB | 1.532 GB | 63.16% | 49.74% | 34.146 s |
+| OpenStreetMap tag values | 50.0M | 1.328 GB | 94.62 MB | 344.62 MB | 92.88% | 74.06% | 2.333 s |
+| Wikidata labels and aliases | 50.0M | 1.778 GB | 334.59 MB | 584.59 MB | 81.18% | 67.12% | 6.008 s |
+
+Sizes use decimal units (`1 MB = 1,000,000 bytes`, `1 GB = 1,000,000,000 bytes`). Packing times measure `Pack` only, with corpus loading and memory monitoring excluded.
+
+![Packed representation across the benchmark corpora](.github/chart.svg)
+
+On this 64-bit system, the logical unpacked size is calculated as:
+
+`string payload bytes + 16 × input count + 24`
+
+The packed total is:
+
+`blob bytes + 5 × input count`
+
+Accordingly, **blob-only saving** compares the blob against the logical unpacked representation and includes the removal of Go string headers. It is not a raw-payload compression ratio. **Total saving** includes the fixed 5-byte pointer required for every input string.
 
 ## Usage
 

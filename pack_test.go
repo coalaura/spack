@@ -2,8 +2,11 @@ package spack_test
 
 import (
 	"bufio"
+	"fmt"
+	"io"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -12,6 +15,8 @@ import (
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
+
+const corpusMagic = "SPACKC01"
 
 type resourceMonitor struct {
 	stop chan struct{}
@@ -50,15 +55,20 @@ func (m *resourceMonitor) Stop() uint64 {
 }
 
 func TestPacker(t *testing.T) {
-	if os.Getenv("SPACK_TEST_CORPUS") != "1" {
-		t.Skip("set SPACK_TEST_CORPUS=1 to run the strings.txt corpus test")
+	corpusPath := os.Getenv("SPACK_TEST_CORPUS_PATH")
+	if corpusPath == "" {
+		t.Skip("set SPACK_TEST_CORPUS_PATH to a .spc corpus file")
+	}
+
+	if filepath.Ext(corpusPath) != ".spc" {
+		t.Fatalf("Corpus file must use the .spc extension: %q\n", corpusPath)
 	}
 
 	printer := message.NewPrinter(language.English)
 
-	t.Log("Reading strings...")
+	t.Logf("Reading corpus %q...\n", corpusPath)
 
-	file, err := os.OpenFile("strings.txt", os.O_RDONLY, 0)
+	file, err := os.Open(corpusPath)
 	must(t, err)
 
 	t.Cleanup(func() {
@@ -67,16 +77,8 @@ func TestPacker(t *testing.T) {
 
 	collector := spack.NewStringMap(nil)
 
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		str := scanner.Text()
-
-		_, err := collector.Add(str)
-		must(t, err)
-	}
-
-	must(t, scanner.Err())
+	err = readCorpus(file, collector)
+	must(t, err)
 
 	t.Logf("Read %s strings (%s bytes)\n", printer.Sprintf("%d", collector.Length()), printer.Sprintf("%d", collector.Size()))
 
@@ -149,7 +151,46 @@ func TestPacker(t *testing.T) {
 	t.Logf("Final compression ratios (in %s):\n", duration.Round(time.Millisecond))
 	t.Logf("- strings (no pointers): %.2f%%\n", stringScore)
 	t.Logf("- total (with pointers): %.2f%%\n", totalScoreA)
+}
 
+func readCorpus(r io.Reader, collector *spack.StringMap) error {
+	reader := bufio.NewReaderSize(r, 4<<20)
+
+	header := make([]byte, len(corpusMagic))
+
+	_, err := io.ReadFull(reader, header)
+	if err != nil {
+		return fmt.Errorf("read corpus header: %w", err)
+	}
+
+	if string(header) != corpusMagic {
+		return fmt.Errorf("invalid corpus header %q", header)
+	}
+
+	var value [spack.MaxStringLen]byte
+
+	for index := 0; ; index++ {
+		length, err := reader.ReadByte()
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+
+			return fmt.Errorf("read length for string %d: %w", index, err)
+		}
+
+		buf := value[:int(length)]
+
+		_, err = io.ReadFull(reader, buf)
+		if err != nil {
+			return fmt.Errorf("read string %d: %w", index, err)
+		}
+
+		_, err = collector.Add(string(buf))
+		if err != nil {
+			return fmt.Errorf("add string %d: %w", index, err)
+		}
+	}
 }
 
 func must(t *testing.T, err error) {
