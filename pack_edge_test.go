@@ -2,6 +2,7 @@ package spack_test
 
 import (
 	"errors"
+	"fmt"
 	"math/rand/v2"
 	"strings"
 	"testing"
@@ -90,7 +91,7 @@ func TestPackRandomBinary(t *testing.T) {
 func TestPackRejectsTooLong(t *testing.T) {
 	t.Parallel()
 
-	_, err := spack.NewStringMap([]string{"ok", strings.Repeat("x", 256)}).Pack()
+	_, err := spack.NewStringMap([]string{"ok", strings.Repeat("x", 256)}).Pack[spack.Pointer32]()
 	if !errors.Is(err, spack.ErrStringTooLong) {
 		t.Fatalf("got %v, want ErrStringTooLong", err)
 	}
@@ -106,10 +107,44 @@ func TestPackDisableGC(t *testing.T) {
 	packRoundTrip(t, input, options)
 }
 
-func packRoundTrip(t *testing.T, input []string, options ...spack.PackOptions) *spack.PackedBlob {
+func TestPackPointerWidths(t *testing.T) {
+	t.Parallel()
+
+	input := []string{"hello world", "world", "", "hello world"}
+
+	testPackPointerWidth[spack.Pointer16](t, input, 3)
+	testPackPointerWidth[spack.Pointer32](t, input, 5)
+	testPackPointerWidth[spack.Pointer64](t, input, 9)
+}
+
+func TestPackPointer16Overflow(t *testing.T) {
+	t.Parallel()
+
+	input := make([]string, 300)
+
+	for i := range input {
+		input[i] = fmt.Sprintf("^%06d%s$", i, strings.Repeat("a", 247))
+	}
+
+	_, err := spack.NewStringMap(input).Pack[spack.Pointer16]()
+	if !errors.Is(err, spack.ErrBlobTooLarge) {
+		t.Fatalf("got %v, want ErrBlobTooLarge", err)
+	}
+
+	pack, err := spack.NewStringMap(input).Pack[spack.Pointer32]()
+	if err != nil {
+		t.Fatalf("Pack[Pointer32]: %v", err)
+	}
+
+	if pack.Len() != len(input)*spack.MaxStringLen {
+		t.Fatalf("blob length %d, want %d", pack.Len(), len(input)*spack.MaxStringLen)
+	}
+}
+
+func packRoundTrip(t *testing.T, input []string, options ...spack.PackOptions) *spack.PackedBlob[spack.Pointer32] {
 	t.Helper()
 
-	pack, err := spack.NewStringMap(input).Pack(options...)
+	pack, err := spack.NewStringMap(input).Pack[spack.Pointer32](options...)
 	if err != nil {
 		t.Fatalf("Pack: %v", err)
 	}
@@ -131,4 +166,25 @@ func packRoundTrip(t *testing.T, input []string, options ...spack.PackOptions) *
 	}
 
 	return pack
+}
+
+func testPackPointerWidth[T spack.PointerType](t *testing.T, input []string, pointerSize int) {
+	t.Helper()
+
+	pack, err := spack.NewStringMap(input).Pack[T]()
+	if err != nil {
+		t.Fatalf("Pack: %v", err)
+	}
+
+	wantSize := pack.Len() + pointerSize*len(input)
+	if pack.Size() != wantSize {
+		t.Fatalf("Size %d, want %d", pack.Size(), wantSize)
+	}
+
+	for i, pointer := range pack.Pointers() {
+		got, err := spack.GetStringUnsafe(pack.Bytes(), pointer)
+		if err != nil || got != input[i] {
+			t.Fatalf("index %d: got %q, %v; want %q, nil", i, got, err, input[i])
+		}
+	}
 }

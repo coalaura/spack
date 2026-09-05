@@ -1,11 +1,9 @@
 package spack
 
-import "math"
-
 // planBlob calculates final offsets and the exact allocation size. A small
 // sliding buffer retains the last 255 bytes needed for overlap decisions
 // without constructing a provisional multi-gigabyte blob.
-func planBlob(entries []string, representatives, roots []int32, chains *rootChains, resolvedOffset []uint32) (int, error) {
+func planBlob(entries []string, representatives, roots []int32, chains *rootChains, resolvedOffset []uint64) (int, error) {
 	var (
 		tail    [4096]byte
 		tailLen int
@@ -27,11 +25,11 @@ func planBlob(entries []string, representatives, roots []int32, chains *rootChai
 			appended := str[overlap:]
 			next := total + uint64(len(appended))
 
-			if next > math.MaxUint32 || next > maxInt {
+			if next > maxInt {
 				return 0, ErrBlobTooLarge
 			}
 
-			resolvedOffset[uid] = uint32(total - uint64(overlap))
+			resolvedOffset[uid] = total - uint64(overlap)
 			chains.overlap[curr] = uint8(overlap)
 
 			// Append into a small sliding buffer instead of moving the

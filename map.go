@@ -15,7 +15,7 @@ import (
 
 const (
 	// MaxStringLen is the maximum allowed length of a string to be packed.
-	// This limit is constrained because the Pointer.Length field is a uint8.
+	// This limit is constrained because pointer lengths are stored as uint8.
 	MaxStringLen = math.MaxUint8
 
 	// numBuckets is the fan-out of the count/scatter partitions. Keys are bucketed
@@ -43,20 +43,20 @@ type PackOptions struct {
 	DisableGC bool
 }
 
-// PackedBlob holds a single concatenated slice of bytes containing
-// all the packed strings. Strings are retrieved using a Pointer.
-type PackedBlob struct {
-	pointers []Pointer
+// PackedBlob holds a single concatenated slice of bytes containing all packed
+// strings. T selects the offset width used by its pointers.
+type PackedBlob[T PointerType] struct {
+	pointers []T
 	blob     []byte
 }
 
 var (
 	ErrTooManyStrings = errors.New("too many strings to pack")
-	ErrBlobTooLarge   = errors.New("packed blob exceeds uint32 offset range")
+	ErrBlobTooLarge   = errors.New("packed blob exceeds pointer offset range")
 )
 
 // Pack compresses all strings currently collected in the StringMap into a PackedBlob.
-func (s *StringMap) Pack(options ...PackOptions) (*PackedBlob, error) {
+func (s *StringMap) Pack[T PointerType](options ...PackOptions) (*PackedBlob[T], error) {
 	s.mx.RLock()
 	defer s.mx.RUnlock()
 
@@ -70,7 +70,7 @@ func (s *StringMap) Pack(options ...PackOptions) (*PackedBlob, error) {
 
 	length := len(entries)
 	if length == 0 {
-		return &PackedBlob{}, nil
+		return &PackedBlob[T]{}, nil
 	}
 
 	if length > math.MaxInt32 {
@@ -120,7 +120,7 @@ func (s *StringMap) Pack(options ...PackOptions) (*PackedBlob, error) {
 	numUnique := chunkBase[len(chunkBase)-1]
 
 	var (
-		pointers             = make([]Pointer, length)
+		uniqueIDs            = make([]int32, length)
 		uniqueRepresentative = make([]int32, numUnique)
 		uPrefix              = make([]uint64, numUnique)
 		uLen                 = make([]uint8, numUnique)
@@ -143,8 +143,7 @@ func (s *StringMap) Pack(options ...PackOptions) (*PackedBlob, error) {
 				uLen[uid] = uint8(len(str))
 			}
 
-			// Preserve the length while the offset temporarily carries a uid.
-			pointers[input] = NewPointer(uint32(uid), uint8(len(str)))
+			uniqueIDs[input] = uid
 		}
 	})
 
@@ -330,7 +329,7 @@ func (s *StringMap) Pack(options ...PackOptions) (*PackedBlob, error) {
 
 	rCandidates = nil
 
-	resolvedOffset := make([]uint32, numUnique)
+	resolvedOffset := make([]uint64, numUnique)
 
 	blobLen, err := planSubstringFreeBlob(
 		entries, uniqueRepresentative, roots, rLen,
@@ -362,22 +361,24 @@ func (s *StringMap) Pack(options ...PackOptions) (*PackedBlob, error) {
 		for j := depth - 1; j >= 0; j-- {
 			node := path[j]
 
-			baseOffset += uint32(parentOffset[node])
+			baseOffset += uint64(parentOffset[node])
 			resolvedOffset[node] = baseOffset
 
 			// Path compression also marks this offset as resolved; no
-			// uint32 offset needs to be reserved as a sentinel.
+			// offset needs to be reserved as a sentinel.
 			parent[node] = -1
 		}
 	}
 
-	parallelFor(length, numCPU, func(start, end int) {
-		for i := start; i < end; i++ {
-			pointer := pointers[i]
+	maxOffset := pointerMaxOffset[T]()
 
-			pointers[i] = NewPointer(resolvedOffset[pointer.Offset()], pointer.Length())
+	for _, offset := range resolvedOffset {
+		if offset > maxOffset {
+			return nil, ErrBlobTooLarge
 		}
-	})
+	}
+
+	pointers := makePointers[T](entries, uniqueIDs, resolvedOffset, numCPU)
 
 	parent = nil
 	parentOffset = nil
@@ -407,7 +408,7 @@ func (s *StringMap) Pack(options ...PackOptions) (*PackedBlob, error) {
 		}
 	}
 
-	return &PackedBlob{
+	return &PackedBlob[T]{
 		pointers: pointers,
 		blob:     blob,
 	}, nil
@@ -416,36 +417,86 @@ func (s *StringMap) Pack(options ...PackOptions) (*PackedBlob, error) {
 // GetStringUnsafe returns a zero-copy string pointing directly into the blob's memory.
 // It is fast but unsafe: the returned string's lifetime is tied to the blob,
 // and it will reflect any future modifications made to the underlying slice.
-func (s *PackedBlob) GetStringUnsafe(pointer Pointer) (string, error) {
+func (s *PackedBlob[T]) GetStringUnsafe(pointer T) (string, error) {
 	return GetStringUnsafe(s.blob, pointer)
 }
 
 // GetString returns a copied, independent string from the PackedBlob.
 // It allocates a new underlying buffer to ensure the returned string can
 // safely outlive the blob and remains isolated from any future mutations.
-func (s *PackedBlob) GetString(pointer Pointer) (string, error) {
+func (s *PackedBlob[T]) GetString(pointer T) (string, error) {
 	return GetString(s.blob, pointer)
 }
 
 // Pointers returns all pointers.
-func (s *PackedBlob) Pointers() []Pointer {
+func (s *PackedBlob[T]) Pointers() []T {
 	return s.pointers
 }
 
 // Bytes returns the raw underlying byte slice of the PackedBlob.
 // This slice should not be modified.
-func (s *PackedBlob) Bytes() []byte {
+func (s *PackedBlob[T]) Bytes() []byte {
 	return s.blob
 }
 
 // Len returns the total length of the packed byte slice in the blob.
-func (s *PackedBlob) Len() int {
+func (s *PackedBlob[T]) Len() int {
 	return len(s.blob)
 }
 
 // Size returns the total size of the packed bytes and pointers in memory.
-func (s *PackedBlob) Size() int {
-	return len(s.blob) + len(s.pointers)*int(unsafe.Sizeof(Pointer{}))
+func (s *PackedBlob[T]) Size() int {
+	return len(s.blob) + len(s.pointers)*int(unsafe.Sizeof(*new(T)))
+}
+
+func makePointers[T PointerType](entries []string, uniqueIDs []int32, resolvedOffset []uint64, numCPU int) []T {
+	switch any(*new(T)).(type) {
+	case Pointer16:
+		pointers := make([]Pointer16, len(uniqueIDs))
+
+		parallelFor(len(pointers), numCPU, func(start, end int) {
+			for i := start; i < end; i++ {
+				pointers[i] = NewPointer16(uint16(resolvedOffset[uniqueIDs[i]]), uint8(len(entries[i])))
+			}
+		})
+
+		return any(pointers).([]T)
+	case Pointer32:
+		pointers := make([]Pointer32, len(uniqueIDs))
+
+		parallelFor(len(pointers), numCPU, func(start, end int) {
+			for i := start; i < end; i++ {
+				pointers[i] = NewPointer32(uint32(resolvedOffset[uniqueIDs[i]]), uint8(len(entries[i])))
+			}
+		})
+
+		return any(pointers).([]T)
+	case Pointer64:
+		pointers := make([]Pointer64, len(uniqueIDs))
+
+		parallelFor(len(pointers), numCPU, func(start, end int) {
+			for i := start; i < end; i++ {
+				pointers[i] = NewPointer64(resolvedOffset[uniqueIDs[i]], uint8(len(entries[i])))
+			}
+		})
+
+		return any(pointers).([]T)
+	default:
+		panic("unsupported pointer type")
+	}
+}
+
+func pointerMaxOffset[T PointerType]() uint64 {
+	switch any(*new(T)).(type) {
+	case Pointer16:
+		return math.MaxUint16
+	case Pointer32:
+		return math.MaxUint32
+	case Pointer64:
+		return math.MaxUint64
+	default:
+		panic("unsupported pointer type")
+	}
 }
 
 // parallelFor runs body over [0, n) split into numCPU contiguous chunks.

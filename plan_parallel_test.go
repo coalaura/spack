@@ -179,8 +179,8 @@ func TestSubstringFreePlannerMatchesSerial(t *testing.T) {
 						overlap: slices.Clone(chains.overlap),
 					}
 
-					wantOffsets := make([]uint32, len(entries))
-					gotOffsets := make([]uint32, len(entries))
+					wantOffsets := make([]uint64, len(entries))
+					gotOffsets := make([]uint64, len(entries))
 
 					wantLen, err := planBlob(
 						entries, representatives, roots, serial, wantOffsets,

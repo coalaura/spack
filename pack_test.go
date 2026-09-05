@@ -104,7 +104,7 @@ func TestPacker(t *testing.T) {
 
 	startTime := time.Now()
 
-	pack, err := collector.Pack()
+	pack, err := collector.Pack[spack.Pointer32]()
 
 	duration := time.Since(startTime)
 

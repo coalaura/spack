@@ -303,7 +303,7 @@ func TestPlanBlobMatchesFullBlob(t *testing.T) {
 	)
 
 	roots := make([]int32, len(entries))
-	resolvedOffset := make([]uint32, len(entries))
+	resolvedOffset := make([]uint64, len(entries))
 	chains := newRootChains(len(entries), make([]uint8, len(entries)))
 
 	for i := range roots {
@@ -330,7 +330,7 @@ func TestPlanBlobMatchesFullBlob(t *testing.T) {
 			overlap--
 		}
 
-		wantOffset := uint32(len(blob) - overlap)
+		wantOffset := uint64(len(blob) - overlap)
 
 		if resolvedOffset[i] != wantOffset {
 			t.Fatalf("root %d: offset %d, want %d",

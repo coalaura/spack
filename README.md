@@ -6,9 +6,9 @@ The resulting blob is flat, coherent and highly optimized for writing to a file 
 
 ## Key Features
 
-* Single Coherent Blob: Packing emits a single byte slice and an array of compact, 5-byte pointers. Perfect for direct disk serialization and zero-copy mmap.
+* Single Coherent Blob: Packing emits a single byte slice and an array of compact 3-, 5- or 9-byte pointers. Perfect for direct disk serialization and zero-copy mmap.
 * O(1) Lookups: Retrieving strings is a flat, simple offset lookup.
-* Standalone Usability: GetString and GetStringUnsafe are decoupled from any struct. They operate directly on raw byte slices using the 5-byte Pointer, facilitating easy integration with mmap libraries.
+* Standalone Usability: GetString and GetStringUnsafe are decoupled from any struct. They operate directly on raw byte slices using Pointer16, Pointer32 or Pointer64, facilitating easy integration with mmap libraries.
 * Zero Allocation Options: Unsafe retrieval returns views over the original block using Go string headers to avoid allocation.
 
 ## Performance
@@ -37,11 +37,11 @@ On this 64-bit system, the logical unpacked size is calculated as:
 
 `string payload bytes + 16 × input count + 24`
 
-The packed total is:
+The packed total below uses `Pointer32`:
 
 `blob bytes + 5 × input count`
 
-Accordingly, **blob-only saving** compares the blob against the logical unpacked representation and includes the removal of Go string headers. It is not a raw-payload compression ratio. **Total saving** includes the fixed 5-byte pointer required for every input string.
+Accordingly, **blob-only saving** compares the blob against the logical unpacked representation and includes the removal of Go string headers. It is not a raw-payload compression ratio. **Total saving** includes the 5-byte `Pointer32` required for every input string.
 
 ## Usage
 
@@ -61,7 +61,7 @@ func main() {
 	idx2, _ := sm.Add("world")
 
 	// pack strings into a flat blob
-	packed, err := sm.Pack()
+	packed, err := sm.Pack[spack.Pointer32]()
 	if err != nil {
 		panic(err)
 	}
@@ -78,12 +78,14 @@ func main() {
 }
 ```
 
+The pointer type is explicit: `Pointer16`, `Pointer32`, and `Pointer64` use 16-, 32-, and 64-bit blob offsets while retaining the same 8-bit string length. Choose the smallest type whose offset range can hold the packed blob.
+
 `Pack` performs explicit garbage collections between memory-intensive phases by default. Disable those calls when latency is more important than reducing peak memory usage:
 
 ```go
-packed, err := sm.Pack(spack.PackOptions{DisableGC: true})
+packed, err := sm.Pack[spack.Pointer32](spack.PackOptions{DisableGC: true})
 ```
 
 ## Constraints
 
-Individual strings cannot exceed 255 bytes (MaxStringLen is constrained by the 8-bit pointer length field).
+Individual strings cannot exceed 255 bytes (`MaxStringLen` is constrained by the 8-bit pointer length field). Packing returns `ErrBlobTooLarge` if any final string offset exceeds the selected pointer type's range.

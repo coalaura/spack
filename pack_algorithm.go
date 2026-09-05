@@ -2,7 +2,6 @@ package spack
 
 import (
 	"cmp"
-	"math"
 	"math/bits"
 	"strings"
 	"sync/atomic"
@@ -824,7 +823,7 @@ func chainRoots(entries []string, representatives, roots []int32, prefix, suffix
 //
 // resolvedOffset temporarily stores predecessor root+1, with zero denoting
 // the first emitted root. After overlap discovery, it receives final offsets.
-func planSubstringFreeBlob(entries []string, representatives, roots []int32, length []uint8, chains *rootChains, resolvedOffset []uint32, numCPU int) (int, error) {
+func planSubstringFreeBlob(entries []string, representatives, roots []int32, length []uint8, chains *rootChains, resolvedOffset []uint64, numCPU int) (int, error) {
 	previous := int32(-1)
 
 	// Preserve the existing emission order, including chain boundaries.
@@ -835,7 +834,7 @@ func planSubstringFreeBlob(entries []string, representatives, roots []int32, len
 		}
 
 		for curr := int32(start); curr != -1; curr = chains.succ[curr] {
-			resolvedOffset[roots[curr]] = uint32(previous + 1)
+			resolvedOffset[roots[curr]] = uint64(previous + 1)
 			previous = curr
 		}
 	}
@@ -880,11 +879,11 @@ func planSubstringFreeBlob(entries []string, representatives, roots []int32, len
 			overlap := uint64(chains.overlap[curr])
 			next := total + uint64(length[curr]) - overlap
 
-			if next > math.MaxUint32 || next > maxInt {
+			if next > maxInt {
 				return 0, ErrBlobTooLarge
 			}
 
-			resolvedOffset[roots[curr]] = uint32(total - overlap)
+			resolvedOffset[roots[curr]] = total - overlap
 			total = next
 		}
 	}

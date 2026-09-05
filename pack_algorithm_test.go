@@ -1,6 +1,7 @@
 package spack_test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -20,14 +21,20 @@ type exactCapacityTestCase struct {
 type pointerTestCase struct {
 	name    string
 	blob    []byte
-	pointer spack.Pointer
+	pointer spack.Pointer32
 	want    string
 	wantErr bool
 }
 
 type pointerGetter struct {
 	name string
-	get  func([]byte, spack.Pointer) (string, error)
+	get  func([]byte, spack.Pointer32) (string, error)
+}
+
+type pointerSizeTestCase struct {
+	name string
+	got  uintptr
+	want uintptr
 }
 
 func TestPackInternalContainment(t *testing.T) {
@@ -204,13 +211,19 @@ func TestPackExactCapacity(t *testing.T) {
 func TestPointerBoundsAndLayout(t *testing.T) {
 	t.Parallel()
 
-	got := unsafe.Sizeof(spack.Pointer{})
-
-	if got != 5 {
-		t.Fatalf("Pointer occupies %d bytes, want 5", got)
+	sizes := []pointerSizeTestCase{
+		{"Pointer16", unsafe.Sizeof(spack.Pointer16{}), 3},
+		{"Pointer32", unsafe.Sizeof(spack.Pointer32{}), 5},
+		{"Pointer64", unsafe.Sizeof(spack.Pointer64{}), 9},
 	}
 
-	pointer := spack.NewPointer(0x12345678, 0xff)
+	for _, tc := range sizes {
+		if tc.got != tc.want {
+			t.Fatalf("%s occupies %d bytes, want %d", tc.name, tc.got, tc.want)
+		}
+	}
+
+	pointer := spack.NewPointer32(0x12345678, 0xff)
 	wantBytes := [5]byte{0x78, 0x56, 0x34, 0x12, 0xff}
 
 	if pointer.Bytes() != wantBytes {
@@ -218,18 +231,22 @@ func TestPointerBoundsAndLayout(t *testing.T) {
 	}
 
 	tests := []pointerTestCase{
-		{"empty", nil, spack.NewPointer(0, 0), "", false},
-		{"empty at end", []byte("a"), spack.NewPointer(1, 0), "", false},
-		{"empty beyond end", nil, spack.NewPointer(1, 0), "", true},
-		{"last byte", []byte{0, 0xff}, spack.NewPointer(1, 1), "\xff", false},
-		{"past end", []byte("a"), spack.NewPointer(1, 1), "", true},
-		{"max offset", nil, spack.NewPointer(math.MaxUint32, 0), "", true},
-		{"wrapping end", []byte("a"), spack.NewPointer(math.MaxUint32, 255), "", true},
+		{"empty", nil, spack.NewPointer32(0, 0), "", false},
+		{"empty at end", []byte("a"), spack.NewPointer32(1, 0), "", false},
+		{"empty beyond end", nil, spack.NewPointer32(1, 0), "", true},
+		{"last byte", []byte{0, 0xff}, spack.NewPointer32(1, 1), "\xff", false},
+		{"past end", []byte("a"), spack.NewPointer32(1, 1), "", true},
+		{"max offset", nil, spack.NewPointer32(math.MaxUint32, 0), "", true},
+		{"wrapping end", []byte("a"), spack.NewPointer32(math.MaxUint32, 255), "", true},
 	}
 
 	getters := []pointerGetter{
-		{"unsafe", spack.GetStringUnsafe},
-		{"copied", spack.GetString},
+		{"unsafe", func(blob []byte, pointer spack.Pointer32) (string, error) {
+			return spack.GetStringUnsafe(blob, pointer)
+		}},
+		{"copied", func(blob []byte, pointer spack.Pointer32) (string, error) {
+			return spack.GetString(blob, pointer)
+		}},
 	}
 
 	for _, getter := range getters {
@@ -254,6 +271,62 @@ func TestPointerBoundsAndLayout(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestPointerSerialization(t *testing.T) {
+	t.Parallel()
+
+	pointer16 := spack.NewPointer16(0x1234, 0x56)
+	want16 := [3]byte{0x34, 0x12, 0x56}
+
+	if pointer16.Offset() != 0x1234 || pointer16.Length() != 0x56 || pointer16.Bytes() != want16 {
+		t.Fatalf("Pointer16 encoded as %x", pointer16.Bytes())
+	}
+
+	pointer32 := spack.NewPointer32(0x12345678, 0x9a)
+	want32 := [5]byte{0x78, 0x56, 0x34, 0x12, 0x9a}
+
+	if pointer32.Offset() != 0x12345678 || pointer32.Length() != 0x9a || pointer32.Bytes() != want32 {
+		t.Fatalf("Pointer32 encoded as %x", pointer32.Bytes())
+	}
+
+	pointer64 := spack.NewPointer64(0x123456789abcdef0, 0xbc)
+	want64 := [9]byte{0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, 0xbc}
+
+	if pointer64.Offset() != 0x123456789abcdef0 || pointer64.Length() != 0xbc || pointer64.Bytes() != want64 {
+		t.Fatalf("Pointer64 encoded as %x", pointer64.Bytes())
+	}
+
+	var written bytes.Buffer
+
+	n, err := pointer64.Write(&written)
+	if err != nil || n != len(want64) || !bytes.Equal(written.Bytes(), want64[:]) {
+		t.Fatalf("Pointer64.Write wrote %x, %d, %v", written.Bytes(), n, err)
+	}
+
+	read64, err := spack.ReadPointer64(bytes.NewReader(want64[:]))
+	if err != nil || read64 != pointer64 {
+		t.Fatalf("ReadPointer64 returned %x, %v", read64.Bytes(), err)
+	}
+
+	if spack.Pointer16FromBytes(want16) != pointer16 {
+		t.Fatal("Pointer16FromBytes did not reconstruct the pointer")
+	}
+
+	from32, err := spack.Pointer32FromSlice(append(want32[:], 0xff))
+	if err != nil || from32 != pointer32 {
+		t.Fatalf("Pointer32FromSlice returned %x, %v", from32.Bytes(), err)
+	}
+
+	_, err = spack.Pointer64FromSlice(want64[:len(want64)-1])
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("Pointer64FromSlice returned %v, want io.ErrUnexpectedEOF", err)
+	}
+
+	_, err = spack.GetString(nil, spack.NewPointer64(math.MaxUint64, 1))
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("GetString returned %v, want io.ErrUnexpectedEOF", err)
 	}
 }
 
