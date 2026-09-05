@@ -2,6 +2,7 @@ package spack_test
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -172,7 +173,7 @@ func readCorpus(r io.Reader, collector *spack.StringMap) error {
 	for index := 0; ; index++ {
 		length, err := reader.ReadByte()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return nil
 			}
 

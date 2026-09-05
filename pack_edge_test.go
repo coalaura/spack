@@ -96,10 +96,20 @@ func TestPackRejectsTooLong(t *testing.T) {
 	}
 }
 
-func packRoundTrip(t *testing.T, input []string) *spack.PackedBlob {
+func TestPackDisableGC(t *testing.T) {
+	t.Parallel()
+
+	input := []string{"hello world", "world", "hello", "world"}
+
+	options := spack.PackOptions{DisableGC: true}
+
+	packRoundTrip(t, input, options)
+}
+
+func packRoundTrip(t *testing.T, input []string, options ...spack.PackOptions) *spack.PackedBlob {
 	t.Helper()
 
-	pack, err := spack.NewStringMap(input).Pack()
+	pack, err := spack.NewStringMap(input).Pack(options...)
 	if err != nil {
 		t.Fatalf("Pack: %v", err)
 	}

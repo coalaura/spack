@@ -78,6 +78,12 @@ func main() {
 }
 ```
 
+`Pack` performs explicit garbage collections between memory-intensive phases by default. Disable those calls when latency is more important than reducing peak memory usage:
+
+```go
+packed, err := sm.Pack(spack.PackOptions{DisableGC: true})
+```
+
 ## Constraints
 
 Individual strings cannot exceed 255 bytes (MaxStringLen is constrained by the 8-bit pointer length field).

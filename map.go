@@ -36,6 +36,13 @@ const (
 	forEachBucketBatch = 1
 )
 
+// PackOptions configures a Pack operation.
+type PackOptions struct {
+	// DisableGC skips explicit garbage collections during packing. The Go
+	// runtime may still perform automatic garbage collection.
+	DisableGC bool
+}
+
 // PackedBlob holds a single concatenated slice of bytes containing
 // all the packed strings. Strings are retrieved using a Pointer.
 type PackedBlob struct {
@@ -49,9 +56,15 @@ var (
 )
 
 // Pack compresses all strings currently collected in the StringMap into a PackedBlob.
-func (s *StringMap) Pack() (*PackedBlob, error) {
+func (s *StringMap) Pack(options ...PackOptions) (*PackedBlob, error) {
 	s.mx.RLock()
 	defer s.mx.RUnlock()
+
+	var disableGC bool
+
+	for _, option := range options {
+		disableGC = disableGC || option.DisableGC
+	}
 
 	entries := s.entries
 
@@ -138,7 +151,9 @@ func (s *StringMap) Pack() (*PackedBlob, error) {
 	keys = nil
 
 	// This releases an 8*N-byte allocation before the per-unique phases.
-	runtime.GC()
+	if !disableGC {
+		runtime.GC()
+	}
 
 	uniqString := func(uid int32) string {
 		return entries[uniqueRepresentative[uid]]
@@ -244,7 +259,9 @@ func (s *StringMap) Pack() (*PackedBlob, error) {
 	suffKeys = nil
 
 	// Release the reversed-sort words before building the root indexes.
-	runtime.GC()
+	if !disableGC {
+		runtime.GC()
+	}
 
 	var numRoots int
 
@@ -370,7 +387,9 @@ func (s *StringMap) Pack() (*PackedBlob, error) {
 	rLen = nil
 
 	// The final allocation happens only after its exact length is known.
-	runtime.GC()
+	if !disableGC {
+		runtime.GC()
+	}
 
 	blob := make([]byte, blobLen)
 
