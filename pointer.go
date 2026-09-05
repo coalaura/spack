@@ -26,6 +26,11 @@ func (p Pointer) Bytes() [5]byte {
 	return p.buf
 }
 
+// Write writes the pointer to the writer.
+func (p Pointer) Write(wr io.Writer) (int, error) {
+	return wr.Write(p.buf[:])
+}
+
 // NewPointer initializes a new 5-byte packed Pointer.
 func NewPointer(offset uint32, length uint8) Pointer {
 	return Pointer{
@@ -37,6 +42,18 @@ func NewPointer(offset uint32, length uint8) Pointer {
 			length,
 		},
 	}
+}
+
+// ReadPointer reads a pointer from a given reader.
+func ReadPointer(rd io.Reader) (Pointer, error) {
+	var buf [5]byte
+
+	_, err := io.ReadFull(rd, buf[:])
+	if err != nil {
+		return Pointer{}, err
+	}
+
+	return Pointer{buf: buf}, nil
 }
 
 // PointerFromBytes reconstructs a Pointer from a 5-byte array.
