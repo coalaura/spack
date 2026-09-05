@@ -82,30 +82,44 @@ func TestPacker(t *testing.T) {
 
 	t.Log("Packing strings...")
 
-	runtime.GC()
+	measureMemory := os.Getenv("SPACK_TEST_MEMORY") == "1"
 
-	var baseMem runtime.MemStats
+	var (
+		baseMem runtime.MemStats
+		monitor *resourceMonitor
 
-	runtime.ReadMemStats(&baseMem)
+		peakAlloc uint64
+	)
 
-	monitor := startResourceMonitor(1 * time.Millisecond)
+	if measureMemory {
+		runtime.GC()
+
+		runtime.ReadMemStats(&baseMem)
+
+		monitor = startResourceMonitor(1 * time.Millisecond)
+	}
 
 	startTime := time.Now()
 
 	pack, err := collector.Pack()
 
 	duration := time.Since(startTime)
-	peakAlloc := monitor.Stop()
+
+	if measureMemory {
+		peakAlloc = monitor.Stop()
+	}
 
 	must(t, err)
 
 	t.Logf("Packed strings into %s bytes, %s bytes in memory\n", printer.Sprintf("%d", pack.Len()), printer.Sprintf("%d", pack.Size()))
 
-	peakAllocMB := float64(peakAlloc) / 1024 / 1024
-	baseAllocMB := float64(baseMem.Alloc) / 1024 / 1024
-	addedAllocMB := max(0, peakAllocMB-baseAllocMB)
+	if measureMemory {
+		peakAllocMB := float64(peakAlloc) / 1024 / 1024
+		baseAllocMB := float64(baseMem.Alloc) / 1024 / 1024
+		addedAllocMB := max(0, peakAllocMB-baseAllocMB)
 
-	t.Logf("Peak Heap Memory: %.2f MB (Baseline: %.2f MB, Net Added: %.2f MB)\n", peakAllocMB, baseAllocMB, addedAllocMB)
+		t.Logf("Peak Heap Memory: %.2f MB (Baseline: %.2f MB, Net Added: %.2f MB)\n", peakAllocMB, baseAllocMB, addedAllocMB)
+	}
 
 	pointers := pack.Pointers()
 
