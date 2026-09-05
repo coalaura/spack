@@ -15,33 +15,6 @@ type packTestCase struct {
 	wantBlobLen int // -1: only require blob <= payload
 }
 
-func packRoundTrip(t *testing.T, input []string) *spack.PackedBlob {
-	t.Helper()
-
-	pack, err := spack.NewStringMap(input).Pack()
-	if err != nil {
-		t.Fatalf("Pack: %v", err)
-	}
-
-	pointers := pack.Pointers()
-	if len(pointers) != len(input) {
-		t.Fatalf("got %d pointers, want %d", len(pointers), len(input))
-	}
-
-	for i, want := range input {
-		got, err := pack.GetStringUnsafe(pointers[i])
-		if err != nil {
-			t.Fatalf("index %d: %v", i, err)
-		}
-
-		if got != want {
-			t.Fatalf("index %d: got %q, want %q", i, got, want)
-		}
-	}
-
-	return pack
-}
-
 func TestPackEdgeCases(t *testing.T) {
 	t.Parallel()
 
@@ -121,4 +94,31 @@ func TestPackRejectsTooLong(t *testing.T) {
 	if !errors.Is(err, spack.ErrStringTooLong) {
 		t.Fatalf("got %v, want ErrStringTooLong", err)
 	}
+}
+
+func packRoundTrip(t *testing.T, input []string) *spack.PackedBlob {
+	t.Helper()
+
+	pack, err := spack.NewStringMap(input).Pack()
+	if err != nil {
+		t.Fatalf("Pack: %v", err)
+	}
+
+	pointers := pack.Pointers()
+	if len(pointers) != len(input) {
+		t.Fatalf("got %d pointers, want %d", len(pointers), len(input))
+	}
+
+	for i, want := range input {
+		got, err := pack.GetStringUnsafe(pointers[i])
+		if err != nil {
+			t.Fatalf("index %d: %v", i, err)
+		}
+
+		if got != want {
+			t.Fatalf("index %d: got %q, want %q", i, got, want)
+		}
+	}
+
+	return pack
 }

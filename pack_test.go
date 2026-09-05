@@ -20,7 +20,40 @@ type resourceMonitor struct {
 	peakAlloc uint64
 }
 
+func (m *resourceMonitor) run(interval time.Duration) {
+	defer close(m.done)
+
+	var memStats runtime.MemStats
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.stop:
+			return
+		case <-ticker.C:
+			runtime.ReadMemStats(&memStats)
+
+			if memStats.Alloc > m.peakAlloc {
+				m.peakAlloc = memStats.Alloc
+			}
+		}
+	}
+}
+
+func (m *resourceMonitor) Stop() uint64 {
+	close(m.stop)
+	<-m.done
+
+	return m.peakAlloc
+}
+
 func TestPacker(t *testing.T) {
+	if os.Getenv("SPACK_TEST_CORPUS") != "1" {
+		t.Skip("set SPACK_TEST_CORPUS=1 to run the strings.txt corpus test")
+	}
+
 	printer := message.NewPrinter(language.English)
 
 	t.Log("Reading strings...")
@@ -28,7 +61,9 @@ func TestPacker(t *testing.T) {
 	file, err := os.OpenFile("strings.txt", os.O_RDONLY, 0)
 	must(t, err)
 
-	defer file.Close()
+	t.Cleanup(func() {
+		must(t, file.Close())
+	})
 
 	collector := spack.NewStringMap(nil)
 
@@ -37,7 +72,8 @@ func TestPacker(t *testing.T) {
 	for scanner.Scan() {
 		str := scanner.Text()
 
-		collector.Add(str)
+		_, err := collector.Add(str)
+		must(t, err)
 	}
 
 	must(t, scanner.Err())
@@ -119,33 +155,4 @@ func startResourceMonitor(interval time.Duration) *resourceMonitor {
 	go m.run(interval)
 
 	return m
-}
-
-func (m *resourceMonitor) run(interval time.Duration) {
-	defer close(m.done)
-
-	var memStats runtime.MemStats
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-m.stop:
-			return
-		case <-ticker.C:
-			runtime.ReadMemStats(&memStats)
-
-			if memStats.Alloc > m.peakAlloc {
-				m.peakAlloc = memStats.Alloc
-			}
-		}
-	}
-}
-
-func (m *resourceMonitor) Stop() uint64 {
-	close(m.stop)
-	<-m.done
-
-	return m.peakAlloc
 }

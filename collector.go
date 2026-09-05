@@ -6,8 +6,6 @@ import (
 	"unsafe"
 )
 
-var ErrStringTooLong = fmt.Errorf("length exceeds max %d", MaxStringLen)
-
 // StringMap is a thread-safe collector for building a list of strings
 // to be packed together into a PackedBlob.
 type StringMap struct {
@@ -16,19 +14,7 @@ type StringMap struct {
 	entries []string
 }
 
-// NewStringMap initializes a new StringMap with an optional pre-filled entries slice.
-func NewStringMap(entries []string) *StringMap {
-	var length uintptr
-
-	for _, str := range entries {
-		length += uintptr(len(str))
-	}
-
-	return &StringMap{
-		length:  length,
-		entries: entries,
-	}
-}
+var ErrStringTooLong = fmt.Errorf("length exceeds max %d", MaxStringLen)
 
 // Add appends a string to the StringMap and returns its assigned index or ErrStringTooLong.
 func (s *StringMap) Add(str string) (int, error) {
@@ -111,4 +97,18 @@ func (s *StringMap) Strings() []string {
 	defer s.mx.RUnlock()
 
 	return s.entries
+}
+
+// NewStringMap initializes a new StringMap with an optional pre-filled entries slice.
+func NewStringMap(entries []string) *StringMap {
+	var length uintptr
+
+	for _, str := range entries {
+		length += uintptr(len(str))
+	}
+
+	return &StringMap{
+		length:  length,
+		entries: entries,
+	}
 }

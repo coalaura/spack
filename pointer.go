@@ -11,19 +11,6 @@ type Pointer struct {
 	buf [5]byte
 }
 
-// NewPointer initializes a new 5-byte packed Pointer.
-func NewPointer(offset uint32, length uint8) Pointer {
-	return Pointer{
-		buf: [5]byte{
-			byte(offset),
-			byte(offset >> 8),
-			byte(offset >> 16),
-			byte(offset >> 24),
-			length,
-		},
-	}
-}
-
 // Offset returns the byte offset of the string within the PackedBlob.
 func (p Pointer) Offset() uint32 {
 	return uint32(p.buf[0]) | uint32(p.buf[1])<<8 | uint32(p.buf[2])<<16 | uint32(p.buf[3])<<24
@@ -37,6 +24,19 @@ func (p Pointer) Length() uint8 {
 // Bytes returns the internal 5-byte representation of the Pointer.
 func (p Pointer) Bytes() [5]byte {
 	return p.buf
+}
+
+// NewPointer initializes a new 5-byte packed Pointer.
+func NewPointer(offset uint32, length uint8) Pointer {
+	return Pointer{
+		buf: [5]byte{
+			byte(offset),
+			byte(offset >> 8),
+			byte(offset >> 16),
+			byte(offset >> 24),
+			length,
+		},
+	}
 }
 
 // PointerFromBytes reconstructs a Pointer from a 5-byte array.
@@ -65,7 +65,7 @@ func GetStringUnsafe(packed []byte, pointer Pointer) (string, error) {
 	offset := pointer.Offset()
 	length := pointer.Length()
 
-	if int(offset)+int(length) > len(packed) {
+	if uint64(offset)+uint64(length) > uint64(len(packed)) {
 		return "", io.ErrUnexpectedEOF
 	}
 
@@ -73,7 +73,7 @@ func GetStringUnsafe(packed []byte, pointer Pointer) (string, error) {
 		return "", nil
 	}
 
-	return unsafe.String(&packed[offset], length), nil
+	return unsafe.String(&packed[int(offset)], int(length)), nil
 }
 
 // Get returns a copied, independent string from the packed blob.
@@ -83,7 +83,7 @@ func GetString(packed []byte, pointer Pointer) (string, error) {
 	offset := pointer.Offset()
 	length := pointer.Length()
 
-	if int(offset)+int(length) > len(packed) {
+	if uint64(offset)+uint64(length) > uint64(len(packed)) {
 		return "", io.ErrUnexpectedEOF
 	}
 
@@ -91,9 +91,12 @@ func GetString(packed []byte, pointer Pointer) (string, error) {
 		return "", nil
 	}
 
-	buf := make([]byte, length)
+	start := int(offset)
+	end := start + int(length)
 
-	copy(buf, packed[offset:offset+uint32(length)])
+	buf := make([]byte, int(length))
 
-	return unsafe.String(&buf[0], length), nil
+	copy(buf, packed[start:end])
+
+	return unsafe.String(&buf[0], len(buf)), nil
 }

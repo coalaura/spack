@@ -1,1 +1,4 @@
 strings.txt
+*.pprof
+*.test
+*.log
