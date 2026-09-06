@@ -1,4 +1,8 @@
-![spack - Many strings. One contiguous blob.](.github/banner.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/banner.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/banner-light.svg">
+  <img alt="spack - Many strings. One contiguous blob." src=".github/banner-light.svg">
+</picture>
 
 spack is a minimal, high-performance string pack library for Go. It packs a collection of strings into a single, contiguous byte slice by deduplicating equal values and exploiting prefix, suffix, internal substring and suffix-to-prefix overlap relationships.
 
@@ -31,7 +35,11 @@ Values longer than 255 bytes are rejected rather than truncated.
 
 Sizes use decimal units (`1 MB = 1,000,000 bytes`, `1 GB = 1,000,000,000 bytes`). Packing times measure `Pack` only, with corpus loading and memory monitoring excluded.
 
-![Packed representation across the benchmark corpora](.github/chart.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/chart.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/chart-light.svg">
+  <img alt="Packed representation across the benchmark corpora" src=".github/chart-light.svg">
+</picture>
 
 On this 64-bit system, the logical unpacked size is calculated as:
 
