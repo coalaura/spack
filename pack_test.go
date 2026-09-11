@@ -94,11 +94,13 @@ func TestPacker(t *testing.T) {
 	t.Log("Packing strings...")
 
 	measureMemory := os.Getenv("SPACK_TEST_MEMORY") == "1"
+	measureBound := os.Getenv("SPACK_TEST_BOUND") == "1"
 
 	var (
 		baseMem runtime.MemStats
 		monitor *resourceMonitor
 
+		bound     spack.BlobSizeBound
 		peakAlloc uint64
 	)
 
@@ -112,7 +114,13 @@ func TestPacker(t *testing.T) {
 
 	startTime := time.Now()
 
-	pack, err := collector.Pack[spack.Pointer32]()
+	var pack *spack.PackedBlob[spack.Pointer32]
+
+	if measureBound {
+		pack, err = collector.PackWithBlobSizeBound[spack.Pointer32](&bound)
+	} else {
+		pack, err = collector.Pack[spack.Pointer32]()
+	}
 
 	duration := time.Since(startTime)
 
@@ -126,12 +134,33 @@ func TestPacker(t *testing.T) {
 
 	t.Logf("Packed strings into %s blob bytes + %s pointer bytes = %s total bytes\n", printer.Sprintf("%d", pack.Len()), printer.Sprintf("%d", pointerBytes), printer.Sprintf("%d", pack.Size()))
 
+	if measureBound {
+		remainingSaving := bound.CurrentBlobBytes - bound.LowerBoundBytes
+
+		var remainingPercent float64
+
+		if bound.CurrentBlobBytes != 0 {
+			remainingPercent = float64(remainingSaving) / float64(bound.CurrentBlobBytes) * 100
+		}
+
+		packingTime := duration - bound.ComputationTime
+
+		t.Logf("Final roots: %s roots, %s bytes, longest %s bytes\n", printer.Sprintf("%d", bound.RootCount), printer.Sprintf("%d", bound.RootBytes), printer.Sprintf("%d", bound.LongestRootBytes))
+		t.Logf("Certified blob interval: [%s, %s] bytes\n", printer.Sprintf("%d", bound.LowerBoundBytes), printer.Sprintf("%d", bound.CurrentBlobBytes))
+		t.Logf("Maximum possible remaining saving: %s bytes (%.6f%%)\n", printer.Sprintf("%d", remainingSaving), remainingPercent)
+		t.Logf("Overlap upper bounds: outgoing %s, incoming %s, used %s bytes\n", printer.Sprintf("%d", bound.OutgoingOverlapUpperBound), printer.Sprintf("%d", bound.IncomingOverlapUpperBound), printer.Sprintf("%d", bound.OverlapUpperBound))
+		t.Logf("Roots without positive overlap: outgoing %s, incoming %s\n", printer.Sprintf("%d", bound.RootsWithoutOutgoingOverlap), printer.Sprintf("%d", bound.RootsWithoutIncomingOverlap))
+		t.Logf("Outgoing maximum-overlap distribution: %s\n", overlapDistribution(bound.OutgoingMaximumDistribution, printer))
+		t.Logf("Incoming maximum-overlap distribution: %s\n", overlapDistribution(bound.IncomingMaximumDistribution, printer))
+		t.Logf("Timing: packing excluding bound %.3f s, bound %.3f s, diagnostic-enabled Pack %.3f s\n", packingTime.Seconds(), bound.ComputationTime.Seconds(), duration.Seconds())
+	}
+
 	if measureMemory {
 		peakAllocMB := float64(peakAlloc) / 1024 / 1024
 		baseAllocMB := float64(baseMem.Alloc) / 1024 / 1024
 		addedAllocMB := max(0, peakAllocMB-baseAllocMB)
 
-		t.Logf("Peak Heap Memory: %.2f MB (Baseline: %.2f MB, Net Added: %.2f MB)\n", peakAllocMB, baseAllocMB, addedAllocMB)
+		t.Logf("Peak Heap Memory: %.2f MiB (Baseline: %.2f MiB, Net Added: %.2f MiB)\n", peakAllocMB, baseAllocMB, addedAllocMB)
 	}
 
 	pointers := pack.Pointers()
@@ -225,4 +254,24 @@ func startResourceMonitor(interval time.Duration) *resourceMonitor {
 	go m.run(interval)
 
 	return m
+}
+
+func overlapDistribution(distribution [spack.MaxStringLen + 1]uint64, printer *message.Printer) string {
+	buffer := make([]byte, 0, 256)
+
+	for overlap, count := range distribution {
+		if count == 0 {
+			continue
+		}
+
+		if len(buffer) != 0 {
+			buffer = append(buffer, ' ')
+		}
+
+		entry := printer.Sprintf("%d:%d", overlap, count)
+
+		buffer = append(buffer, entry...)
+	}
+
+	return string(buffer)
 }

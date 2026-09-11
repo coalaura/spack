@@ -57,6 +57,16 @@ var (
 
 // Pack compresses all strings currently collected in the StringMap into a PackedBlob.
 func (s *StringMap) Pack[T PointerType](options ...PackOptions) (*PackedBlob[T], error) {
+	return s.pack[T](nil, options...)
+}
+
+// PackWithBlobSizeBound packs the strings and additionally calculates a
+// certified size bound for the final deduplicated, containment-reduced roots.
+func (s *StringMap) PackWithBlobSizeBound[T PointerType](bound *BlobSizeBound, options ...PackOptions) (*PackedBlob[T], error) {
+	return s.pack[T](bound, options...)
+}
+
+func (s *StringMap) pack[T PointerType](requestedBound *BlobSizeBound, options ...PackOptions) (*PackedBlob[T], error) {
 	s.mx.RLock()
 	defer s.mx.RUnlock()
 
@@ -70,6 +80,10 @@ func (s *StringMap) Pack[T PointerType](options ...PackOptions) (*PackedBlob[T],
 
 	length := len(entries)
 	if length == 0 {
+		if requestedBound != nil {
+			*requestedBound = BlobSizeBound{}
+		}
+
 		return &PackedBlob[T]{}, nil
 	}
 
@@ -339,6 +353,17 @@ func (s *StringMap) Pack[T PointerType](options ...PackOptions) (*PackedBlob[T],
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if requestedBound != nil {
+		bound, boundErr := calculateBlobSizeBound(entries, uniqueRepresentative, roots, rPrefix, rLen)
+		if boundErr != nil {
+			return nil, boundErr
+		}
+
+		bound.CurrentBlobBytes = uint64(blobLen)
+
+		*requestedBound = bound
 	}
 
 	// Every parent is strictly longer than its child. Consequently a path
