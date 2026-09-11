@@ -37,6 +37,11 @@ type pointerSizeTestCase struct {
 	want uintptr
 }
 
+type packingQualityTestCase struct {
+	name  string
+	input []string
+}
+
 func TestPackInternalContainment(t *testing.T) {
 	t.Parallel()
 
@@ -97,6 +102,56 @@ func TestPackLongOverlapSelection(t *testing.T) {
 			if pack.Len() != tc.wantBlobLen {
 				t.Fatalf("blob %d bytes, want %d (blob %q)",
 					pack.Len(), tc.wantBlobLen, pack.Bytes())
+			}
+		})
+	}
+}
+
+func TestPackEqualOverlapSelection(t *testing.T) {
+	t.Parallel()
+
+	pack := packRoundTrip(t, []string{"abb", "bba", "bbb"})
+	if pack.Len() != 5 {
+		t.Fatalf("blob %d bytes, want 5 (blob %q)", pack.Len(), pack.Bytes())
+	}
+
+	if string(pack.Bytes()) != "abbba" {
+		t.Fatalf("blob %q, want deterministic blob %q", pack.Bytes(), "abbba")
+	}
+}
+
+func TestPackSmallInstancesMatchExactSolution(t *testing.T) {
+	t.Parallel()
+
+	tests := []packingQualityTestCase{
+		{
+			name:  "competing equal overlaps",
+			input: []string{"abb", "bba", "bbb"},
+		},
+		{
+			name:  "directed cycle",
+			input: []string{"abcd", "cdab", "dabc"},
+		},
+		{
+			name:  "periodic strings",
+			input: []string{"aaba", "abaa", "baab"},
+		},
+		{
+			name:  "arbitrary bytes",
+			input: []string{"\x00\xffa", "a\x00\xff", "\xffa\x00"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			pack := packRoundTrip(t, tc.input)
+			want := exactSuperstringLength(tc.input)
+
+			if pack.Len() != want {
+				t.Fatalf("blob %d bytes, exact solution is %d (blob %q)",
+					pack.Len(), want, pack.Bytes())
 			}
 		})
 	}
@@ -364,4 +419,87 @@ func TestPackCachedKeyAcrossBuckets(t *testing.T) {
 		"\xff\x000123",
 		"\xff\xff0123",
 	})
+}
+
+func BenchmarkPackSmallAmbiguous(b *testing.B) {
+	collector := spack.NewStringMap(nil)
+	input := []string{"abb", "bba", "bbb"}
+
+	for _, value := range input {
+		_, err := collector.Add(value)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ReportAllocs()
+	b.SetBytes(9)
+
+	var (
+		blobBytes   int
+		packedBytes int
+	)
+
+	for b.Loop() {
+		pack, err := collector.Pack[spack.Pointer32](spack.PackOptions{DisableGC: true})
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		blobBytes = pack.Len()
+		packedBytes = pack.Size()
+	}
+
+	b.ReportMetric(7, "baseline-blob-bytes")
+	b.ReportMetric(float64(blobBytes), "blob-bytes")
+	b.ReportMetric(float64(packedBytes), "packed-bytes")
+}
+
+func exactSuperstringLength(input []string) int {
+	used := make([]bool, len(input))
+	best := math.MaxInt
+
+	searchSuperstringOrders(input, used, -1, 0, 0, &best)
+
+	return best
+}
+
+func searchSuperstringOrders(input []string, used []bool, previous, depth, length int, best *int) {
+	if depth == len(input) {
+		*best = min(*best, length)
+
+		return
+	}
+
+	for current, value := range input {
+		if used[current] {
+			continue
+		}
+
+		nextLength := len(value)
+
+		if previous != -1 {
+			nextLength += length - testStringOverlap(input[previous], value)
+		}
+
+		if nextLength >= *best {
+			continue
+		}
+
+		used[current] = true
+
+		searchSuperstringOrders(input, used, current, depth+1, nextLength, best)
+
+		used[current] = false
+	}
+}
+
+func testStringOverlap(previous, current string) int {
+	for overlap := min(len(previous), len(current)); overlap > 0; overlap-- {
+		if previous[len(previous)-overlap:] == current[:overlap] {
+			return overlap
+		}
+	}
+
+	return 0
 }

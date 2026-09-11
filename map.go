@@ -327,6 +327,8 @@ func (s *StringMap) Pack[T PointerType](options ...PackOptions) (*PackedBlob[T],
 		rPrefix, rSuffix, rLen, rCandidates, numCPU,
 	)
 
+	refineSmallRootSet(entries, uniqueRepresentative, roots, chains)
+
 	rCandidates = nil
 
 	resolvedOffset := make([]uint64, numUnique)

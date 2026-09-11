@@ -11,6 +11,10 @@ const (
 	radixTargetSize = 32
 	radixMinSize    = 64
 	radixMaxBits    = 16
+	// At this bound, every total-overlap score fits in an int16.
+	smallRefinementRootLimit     = 10
+	smallRefinementUnreachable   = -1
+	smallRefinementNoPredecessor = -1
 )
 
 // rootIndex indexes a lexicographically sorted, prefix-free set of strings.
@@ -812,6 +816,150 @@ func chainRoots(entries []string, representatives, roots []int32, prefix, suffix
 	chains.other = nil
 
 	return chains
+}
+
+// refineSmallRootSet solves small substring-free instances exactly. The
+// greedy chain order remains untouched unless the exact directed-overlap
+// score proves that rewiring produces a shorter final blob.
+func refineSmallRootSet(entries []string, representatives, roots []int32, chains *rootChains) {
+	numRoots := len(roots)
+	if numRoots <= 1 || numRoots > smallRefinementRootLimit {
+		return
+	}
+
+	var overlaps [smallRefinementRootLimit * smallRefinementRootLimit]uint8
+
+	for tail := range numRoots {
+		tailString := entries[representatives[roots[tail]]]
+
+		for head := range numRoots {
+			if tail == head {
+				continue
+			}
+
+			headString := entries[representatives[roots[head]]]
+			overlap := findStringOverlap(tailString, headString, 0)
+
+			overlaps[tail*smallRefinementRootLimit+head] = uint8(overlap)
+		}
+	}
+
+	var (
+		baselineOrder [smallRefinementRootLimit]int32
+		orderLength   int
+		baselineScore int
+	)
+
+	for start := range numRoots {
+		if chains.hasPred[start] {
+			continue
+		}
+
+		for current := int32(start); current != -1; current = chains.succ[current] {
+			if orderLength != 0 {
+				previous := baselineOrder[orderLength-1]
+				baselineScore += int(overlaps[int(previous)*smallRefinementRootLimit+int(current)])
+			}
+
+			baselineOrder[orderLength] = current
+			orderLength++
+		}
+	}
+
+	activeStates := 1 << uint(numRoots)
+	activeEntries := activeStates * smallRefinementRootLimit
+	scores := make([]int16, activeEntries)
+	predecessors := make([]int8, activeEntries)
+
+	for index := range activeEntries {
+		scores[index] = smallRefinementUnreachable
+		predecessors[index] = smallRefinementNoPredecessor
+	}
+
+	for root := range numRoots {
+		state := 1 << uint(root)
+		index := state*smallRefinementRootLimit + root
+
+		scores[index] = 0
+	}
+
+	for state := 1; state < activeStates; state++ {
+		for tail := range numRoots {
+			index := state*smallRefinementRootLimit + tail
+
+			score := scores[index]
+			if score == smallRefinementUnreachable {
+				continue
+			}
+
+			for head := range numRoots {
+				headBit := 1 << uint(head)
+
+				if state&headBit != 0 {
+					continue
+				}
+
+				nextState := state | headBit
+
+				nextIndex := nextState*smallRefinementRootLimit + head
+				nextScore := score + int16(overlaps[tail*smallRefinementRootLimit+head])
+
+				if nextScore <= scores[nextIndex] {
+					continue
+				}
+
+				scores[nextIndex] = nextScore
+				predecessors[nextIndex] = int8(tail)
+			}
+		}
+	}
+
+	finalState := activeStates - 1
+	bestTail := 0
+	bestScore := scores[finalState*smallRefinementRootLimit]
+
+	for tail := 1; tail < numRoots; tail++ {
+		score := scores[finalState*smallRefinementRootLimit+tail]
+		if score > bestScore {
+			bestTail = tail
+			bestScore = score
+		}
+	}
+
+	if int(bestScore) <= baselineScore {
+		return
+	}
+
+	var refinedOrder [smallRefinementRootLimit]int32
+
+	state := finalState
+	tail := bestTail
+
+	for position := numRoots - 1; position >= 0; position-- {
+		refinedOrder[position] = int32(tail)
+
+		index := state*smallRefinementRootLimit + tail
+		previous := predecessors[index]
+
+		state &^= 1 << uint(tail)
+		tail = int(previous)
+	}
+
+	for root := range numRoots {
+		chains.succ[root] = -1
+		chains.hasPred[root] = false
+		chains.overlap[root] = 0
+	}
+
+	for position := 1; position < numRoots; position++ {
+		previous := refinedOrder[position-1]
+		current := refinedOrder[position]
+
+		chains.succ[previous] = current
+		chains.hasPred[current] = true
+		chains.overlap[current] = overlaps[int(previous)*smallRefinementRootLimit+int(current)]
+	}
+
 }
 
 // planSubstringFreeBlob plans emission when no root is a substring of another.

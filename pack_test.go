@@ -31,19 +31,19 @@ func (m *resourceMonitor) run(interval time.Duration) {
 
 	var memStats runtime.MemStats
 
+	m.sample(&memStats)
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-m.stop:
+			m.sample(&memStats)
+
 			return
 		case <-ticker.C:
-			runtime.ReadMemStats(&memStats)
-
-			if memStats.Alloc > m.peakAlloc {
-				m.peakAlloc = memStats.Alloc
-			}
+			m.sample(&memStats)
 		}
 	}
 }
@@ -53,6 +53,14 @@ func (m *resourceMonitor) Stop() uint64 {
 	<-m.done
 
 	return m.peakAlloc
+}
+
+func (m *resourceMonitor) sample(memStats *runtime.MemStats) {
+	runtime.ReadMemStats(memStats)
+
+	if memStats.Alloc > m.peakAlloc {
+		m.peakAlloc = memStats.Alloc
+	}
 }
 
 func TestPacker(t *testing.T) {
@@ -78,10 +86,10 @@ func TestPacker(t *testing.T) {
 
 	collector := spack.NewStringMap(nil)
 
-	err = readCorpus(file, collector)
+	payloadBytes, err := readCorpus(file, collector)
 	must(t, err)
 
-	t.Logf("Read %s strings (%s bytes)\n", printer.Sprintf("%d", collector.Length()), printer.Sprintf("%d", collector.Size()))
+	t.Logf("Read %s strings (%s raw payload bytes, %s logical bytes)\n", printer.Sprintf("%d", collector.Length()), printer.Sprintf("%d", payloadBytes), printer.Sprintf("%d", collector.Size()))
 
 	t.Log("Packing strings...")
 
@@ -114,7 +122,9 @@ func TestPacker(t *testing.T) {
 
 	must(t, err)
 
-	t.Logf("Packed strings into %s bytes, %s bytes in memory\n", printer.Sprintf("%d", pack.Len()), printer.Sprintf("%d", pack.Size()))
+	pointerBytes := pack.Size() - pack.Len()
+
+	t.Logf("Packed strings into %s blob bytes + %s pointer bytes = %s total bytes\n", printer.Sprintf("%d", pack.Len()), printer.Sprintf("%d", pointerBytes), printer.Sprintf("%d", pack.Size()))
 
 	if measureMemory {
 		peakAllocMB := float64(peakAlloc) / 1024 / 1024
@@ -154,42 +164,46 @@ func TestPacker(t *testing.T) {
 	t.Logf("- total (with pointers): %.2f%%\n", totalScoreA)
 }
 
-func readCorpus(r io.Reader, collector *spack.StringMap) error {
+func readCorpus(r io.Reader, collector *spack.StringMap) (uint64, error) {
 	reader := bufio.NewReaderSize(r, 4<<20)
 
 	header := make([]byte, len(corpusMagic))
 
 	_, err := io.ReadFull(reader, header)
 	if err != nil {
-		return fmt.Errorf("read corpus header: %w", err)
+		return 0, fmt.Errorf("read corpus header: %w", err)
 	}
 
 	if string(header) != corpusMagic {
-		return fmt.Errorf("invalid corpus header %q", header)
+		return 0, fmt.Errorf("invalid corpus header %q", header)
 	}
 
-	var value [spack.MaxStringLen]byte
+	var (
+		value        [spack.MaxStringLen]byte
+		payloadBytes uint64
+	)
 
 	for index := 0; ; index++ {
 		length, err := reader.ReadByte()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return nil
+				return payloadBytes, nil
 			}
 
-			return fmt.Errorf("read length for string %d: %w", index, err)
+			return 0, fmt.Errorf("read length for string %d: %w", index, err)
 		}
 
 		buf := value[:int(length)]
+		payloadBytes += uint64(length)
 
 		_, err = io.ReadFull(reader, buf)
 		if err != nil {
-			return fmt.Errorf("read string %d: %w", index, err)
+			return 0, fmt.Errorf("read string %d: %w", index, err)
 		}
 
 		_, err = collector.Add(string(buf))
 		if err != nil {
-			return fmt.Errorf("add string %d: %w", index, err)
+			return 0, fmt.Errorf("add string %d: %w", index, err)
 		}
 	}
 }
