@@ -95,6 +95,13 @@ func TestPacker(t *testing.T) {
 
 	measureMemory := os.Getenv("SPACK_TEST_MEMORY") == "1"
 	measureBound := os.Getenv("SPACK_TEST_BOUND") == "1"
+	disableGC := os.Getenv("SPACK_TEST_DISABLE_GC") == "1"
+
+	options := spack.PackOptions{
+		DisableGC: disableGC,
+	}
+
+	t.Logf("Settings: Pointer32, GOMAXPROCS=%d, DisableGC=%t, %s/%s, %s\n", runtime.GOMAXPROCS(0), disableGC, runtime.GOOS, runtime.GOARCH, runtime.Version())
 
 	var (
 		baseMem runtime.MemStats
@@ -117,9 +124,9 @@ func TestPacker(t *testing.T) {
 	var pack *spack.PackedBlob[spack.Pointer32]
 
 	if measureBound {
-		pack, err = collector.PackWithBlobSizeBound[spack.Pointer32](&bound)
+		pack, err = collector.PackWithBlobSizeBound[spack.Pointer32](&bound, options)
 	} else {
-		pack, err = collector.Pack[spack.Pointer32]()
+		pack, err = collector.Pack[spack.Pointer32](options)
 	}
 
 	duration := time.Since(startTime)
@@ -143,8 +150,6 @@ func TestPacker(t *testing.T) {
 			remainingPercent = float64(remainingSaving) / float64(bound.CurrentBlobBytes) * 100
 		}
 
-		packingTime := duration - bound.ComputationTime
-
 		t.Logf("Final roots: %s roots, %s bytes, longest %s bytes\n", printer.Sprintf("%d", bound.RootCount), printer.Sprintf("%d", bound.RootBytes), printer.Sprintf("%d", bound.LongestRootBytes))
 		t.Logf("Certified blob interval: [%s, %s] bytes\n", printer.Sprintf("%d", bound.LowerBoundBytes), printer.Sprintf("%d", bound.CurrentBlobBytes))
 		t.Logf("Maximum possible remaining saving: %s bytes (%.6f%%)\n", printer.Sprintf("%d", remainingSaving), remainingPercent)
@@ -152,15 +157,15 @@ func TestPacker(t *testing.T) {
 		t.Logf("Roots without positive overlap: outgoing %s, incoming %s\n", printer.Sprintf("%d", bound.RootsWithoutOutgoingOverlap), printer.Sprintf("%d", bound.RootsWithoutIncomingOverlap))
 		t.Logf("Outgoing maximum-overlap distribution: %s\n", overlapDistribution(bound.OutgoingMaximumDistribution, printer))
 		t.Logf("Incoming maximum-overlap distribution: %s\n", overlapDistribution(bound.IncomingMaximumDistribution, printer))
-		t.Logf("Timing: packing excluding bound %.3f s, bound %.3f s, diagnostic-enabled Pack %.3f s\n", packingTime.Seconds(), bound.ComputationTime.Seconds(), duration.Seconds())
+		t.Logf("Timing: diagnostic-enabled Pack call %.3f s; bound calculation within that call %.3f s\n", duration.Seconds(), bound.ComputationTime.Seconds())
+	} else {
+		t.Logf("Timing: ordinary Pack call %.3f s\n", duration.Seconds())
 	}
 
 	if measureMemory {
 		peakAllocMB := float64(peakAlloc) / 1024 / 1024
 		baseAllocMB := float64(baseMem.Alloc) / 1024 / 1024
-		addedAllocMB := max(0, peakAllocMB-baseAllocMB)
-
-		t.Logf("Peak Heap Memory: %.2f MiB (Baseline: %.2f MiB, Net Added: %.2f MiB)\n", peakAllocMB, baseAllocMB, addedAllocMB)
+		t.Logf("Sampled peak Go heap allocation during Pack: %.2f MiB (pre-call Go heap allocation: %.2f MiB; 1 ms samples)\n", peakAllocMB, baseAllocMB)
 	}
 
 	pointers := pack.Pointers()
@@ -171,8 +176,10 @@ func TestPacker(t *testing.T) {
 
 	t.Log("Testing random read...")
 
+	rng := rand.New(rand.NewPCG(0x4a6f, 0x9c21))
+
 	for range 4096 {
-		idx := rand.IntN(collector.Length())
+		idx := rng.IntN(collector.Length())
 
 		expected := collector.GetString(idx)
 		pointer := pointers[idx]

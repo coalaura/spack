@@ -347,10 +347,7 @@ func (s *StringMap) pack[T PointerType](requestedBound *BlobSizeBound, options .
 
 	resolvedOffset := make([]uint64, numUnique)
 
-	blobLen, err := planSubstringFreeBlob(
-		entries, uniqueRepresentative, roots, rLen,
-		chains, resolvedOffset, numCPU,
-	)
+	blobLen, err := planSubstringFreeBlob(entries, uniqueRepresentative, roots, rLen, chains, resolvedOffset, numCPU)
 	if err != nil {
 		return nil, err
 	}

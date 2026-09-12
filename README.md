@@ -28,12 +28,12 @@ Values longer than 255 bytes are rejected rather than truncated.
 
 | Corpus | Inputs | Logical input | Blob | Packed total | Blob-only saving | Total saving | Pack time |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Common Crawl URLs | 50.0M | 4.333 GB | 3.430 GB | 3.680 GB | 20.85% | 15.08% | 23.639 s |
-| joaat.sh GTA V extraction | 81.8M | 3.048 GB | 1.123 GB | 1.532 GB | 63.16% | 49.74% | 33.849 s |
-| OpenStreetMap tag values | 50.0M | 1.328 GB | 94.62 MB | 344.62 MB | 92.88% | 74.06% | 2.340 s |
-| Wikidata labels and aliases | 50.0M | 1.778 GB | 334.59 MB | 584.59 MB | 81.18% | 67.12% | 5.799 s |
+| Common Crawl URLs | 50.0M | 4.333 GB | 3.430 GB | 3.680 GB | 20.85% | 15.08% | 22.935 s |
+| joaat.sh GTA V extraction | 81.8M | 3.048 GB | 1.123 GB | 1.532 GB | 63.16% | 49.74% | 31.434 s |
+| OpenStreetMap tag values | 50.0M | 1.328 GB | 94.62 MB | 344.62 MB | 92.88% | 74.06% | 2.193 s |
+| Wikidata labels and aliases | 50.0M | 1.778 GB | 334.59 MB | 584.59 MB | 81.18% | 67.12% | 5.347 s |
 
-Sizes use decimal units (`1 MB = 1,000,000 bytes`, `1 GB = 1,000,000,000 bytes`). Packing times measure `Pack` only, with corpus loading and memory monitoring excluded.
+Sizes use decimal units (`1 MB = 1,000,000 bytes`, `1 GB = 1,000,000,000 bytes`). Packing times are single diagnostics-disabled `Pack` calls in fresh processes, with corpus loading and memory monitoring excluded. See the [2026-09-12 measurement record](.github/measurements-2026-09-12.md) for corpus hashes, exact byte counts, diagnostic timings, sampled Go heap measurements and machine settings.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/chart.svg">
@@ -77,6 +77,25 @@ That makes the result a proof rather than an estimate: if the current blob reach
 | Wikidata labels and aliases | 334.59 MB | 294.32 MB | 40.26 MB (12.03%) |
 
 Common Crawl is therefore effectively solved: no conforming blob can be more than 4,675 bytes smaller. The 12-14% gaps on the other corpora are still unresolved, but are gaps in what has been *proven*, not evidence that another 12-14% can actually be compressed away.
+
+### Reproducing corpus measurements
+
+Corpora stay outside Git. Hash each unchanged corpus once, outside the timed runs and retain that hash with the results:
+
+```sh
+sha256sum /path/to/corpus.spc
+```
+
+Run each mode as a separate command so every `go test` invocation starts a fresh process. Use the same `GOMAXPROCS`, corpus, pointer type and Pack settings for all four commands:
+
+```sh
+GOMAXPROCS=32 SPACK_TEST_CORPUS_PATH=/path/to/corpus.spc go test -run '^TestPacker$' -count=1 -v
+GOMAXPROCS=32 SPACK_TEST_CORPUS_PATH=/path/to/corpus.spc SPACK_TEST_BOUND=1 go test -run '^TestPacker$' -count=1 -v
+GOMAXPROCS=32 SPACK_TEST_CORPUS_PATH=/path/to/corpus.spc SPACK_TEST_MEMORY=1 go test -run '^TestPacker$' -count=1 -v
+GOMAXPROCS=32 SPACK_TEST_CORPUS_PATH=/path/to/corpus.spc SPACK_TEST_BOUND=1 SPACK_TEST_MEMORY=1 go test -run '^TestPacker$' -count=1 -v
+```
+
+The first result is ordinary Pack time. The second is the full diagnostic-enabled call; its bound calculation time is an internal portion of that call, not an incremental-cost measurement. The final two commands are separate heap-monitoring runs. They sample Go's `runtime.MemStats.Alloc` every millisecond, so the result is sampled peak Go heap allocation, not RSS or total process memory. Differences between sampled peaks are not exact allocation costs. Set `SPACK_TEST_DISABLE_GC=1` only when intentionally measuring the corresponding `PackOptions.DisableGC` setting and record it consistently for every compared run.
 
 A useful next step is a tighter length-only bound before adding more expensive construction heuristics. Cazaux, Juhel and Rivals, ["Practical lower and upper bounds for the Shortest Linear Superstring" (SEA 2018)](https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.SEA.2018.18), describe a stronger cyclic-cover lower bound that is a promising direction.
 

@@ -104,8 +104,7 @@ func TestSubstringFreePlannerMatchesSerial(t *testing.T) {
 			for i, str := range entries {
 				for j, host := range entries {
 					if i != j && strings.Contains(host, str) {
-						t.Fatalf("test roots are not substring-free: %q inside %q",
-							str, host)
+						t.Fatalf("test roots are not substring-free: %q inside %q", str, host)
 					}
 				}
 			}
@@ -173,6 +172,7 @@ func TestSubstringFreePlannerMatchesSerial(t *testing.T) {
 						hasPred: slices.Clone(chains.hasPred),
 						overlap: slices.Clone(chains.overlap),
 					}
+
 					parallel := &rootChains{
 						succ:    slices.Clone(chains.succ),
 						hasPred: slices.Clone(chains.hasPred),
@@ -182,17 +182,12 @@ func TestSubstringFreePlannerMatchesSerial(t *testing.T) {
 					wantOffsets := make([]uint64, len(entries))
 					gotOffsets := make([]uint64, len(entries))
 
-					wantLen, err := planBlob(
-						entries, representatives, roots, serial, wantOffsets,
-					)
+					wantLen, err := planBlob(entries, representatives, roots, serial, wantOffsets)
 					if err != nil {
 						t.Fatal(err)
 					}
 
-					gotLen, err := planSubstringFreeBlob(
-						entries, representatives, roots, length,
-						parallel, gotOffsets, 4,
-					)
+					gotLen, err := planSubstringFreeBlob(entries, representatives, roots, length, parallel, gotOffsets, 4)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -206,8 +201,7 @@ func TestSubstringFreePlannerMatchesSerial(t *testing.T) {
 					}
 
 					if !slices.Equal(parallel.overlap, serial.overlap) {
-						t.Fatalf("overlaps %v, want %v",
-							parallel.overlap, serial.overlap)
+						t.Fatalf("overlaps %v, want %v", parallel.overlap, serial.overlap)
 					}
 				})
 			}
