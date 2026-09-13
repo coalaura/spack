@@ -248,6 +248,7 @@ func TestCyclicCoverCandidateRoundTrip(t *testing.T) {
 		"bcacacbb",
 		"bcaadcab",
 	}
+
 	input = append(input,
 		input[2],
 		input[5][2:6],
@@ -429,6 +430,7 @@ func evaluateCyclicCoverStrings(t *testing.T, roots []string) cyclicCoverResearc
 
 func evaluateCyclicCover(entries []string, representatives, roots []int32, prefix []uint64, length []uint8, candidateChains *rootChains) (cyclicCoverResearchResult, error) {
 	startTime := time.Now()
+
 	result := cyclicCoverResearchResult{
 		RootCount: len(roots),
 	}
@@ -448,6 +450,7 @@ func evaluateCyclicCover(entries []string, representatives, roots []int32, prefi
 	}
 
 	index := newRootIndexWithShort(entries, representatives, roots, prefix, length, false)
+
 	shards := make([]cyclicCoverNodeSetShard, cyclicCoverShardCount)
 
 	parallelFor(len(roots), runtime.GOMAXPROCS(0), func(start, end int) {
@@ -484,6 +487,7 @@ func evaluateCyclicCover(entries []string, representatives, roots []int32, prefi
 	}
 
 	nodes := make([]cyclicCoverNode, 0, len(roots)+properOverlapCount+1)
+
 	nodes = append(nodes, cyclicCoverNode{
 		key:          cyclicCoverEmptyKey,
 		prefixParent: -1,
@@ -509,6 +513,7 @@ func evaluateCyclicCover(entries []string, representatives, roots []int32, prefi
 		}
 
 		result.RootBytes += value
+
 		nodes = append(nodes, cyclicCoverNode{
 			key:          cyclicCoverNodeKey(int32(root), int(rootLength)),
 			root:         int32(root),
@@ -547,12 +552,14 @@ func evaluateCyclicCover(entries []string, representatives, roots []int32, prefi
 		}
 
 		value := index.str(nodes[node].root)[:nodes[node].length]
+
 		nodes[node].prefixParent = cyclicCoverPrefixParent(index, nodeByKey, value)
 		nodes[node].suffixParent = cyclicCoverSuffixParent(index, nodeByKey, value)
 	}
 
 	suffixFlow := make([]uint64, len(nodes))
 	prefixFlow := make([]uint64, len(nodes))
+
 	disjointSet := newCyclicCoverDisjointSet(nodes)
 
 	for node := range nodes {
@@ -573,6 +580,7 @@ func evaluateCyclicCover(entries []string, representatives, roots []int32, prefi
 			}
 
 			result.OverlapSavings += saving
+
 			suffixFlow[node] -= uses
 			prefixFlow[node] -= uses
 		}
@@ -621,6 +629,7 @@ func evaluateCyclicCover(entries []string, representatives, roots []int32, prefi
 
 	if candidateChains != nil {
 		result.BaselineBytes = cyclicCoverChainBlobLength(index, candidateChains)
+
 		constructedChains := &rootChains{
 			succ:    make([]int32, len(roots)),
 			hasPred: make([]bool, len(roots)),
@@ -712,6 +721,7 @@ func optimizeCyclicCoverComponentJoins(index *rootIndex, chains *rootChains) (in
 		parent:  make([]int32, len(starts)),
 		minimum: make([]uint8, len(starts)),
 	}
+
 	successorSet := make([]bool, len(starts))
 	predecessorSet := make([]bool, len(starts))
 
@@ -738,8 +748,10 @@ func optimizeCyclicCoverComponentJoins(index *rootIndex, chains *rootChains) (in
 		chains.succ[ends[tail]] = starts[head]
 		chains.hasPred[starts[head]] = true
 		chains.overlap[starts[head]] = overlap
+
 		successorSet[tail] = true
 		predecessorSet[head] = true
+
 		disjointSet.union(tail, head)
 
 		joinCount++
@@ -820,6 +832,7 @@ func constructCyclicCoverCandidate(index *rootIndex, nodes []cyclicCoverNode, su
 		}
 
 		cycle := cycleRoots[cycleStart:]
+
 		slices.Reverse(cycle)
 
 		if len(cycle) > 1 && cycle[0] == cycle[len(cycle)-1] {
@@ -855,6 +868,7 @@ func constructCyclicCoverCandidate(index *rootIndex, nodes []cyclicCoverNode, su
 		for position := 0; position < len(cycle)-1; position++ {
 			tailPosition := (cut + 1 + position) % len(cycle)
 			headPosition := (tailPosition + 1) % len(cycle)
+
 			tail := cycle[tailPosition]
 			head := cycle[headPosition]
 
@@ -1076,6 +1090,7 @@ func oracleProperStringOverlap(tail, head string, same bool) int {
 
 func readCyclicCoverCorpus(reader io.Reader) ([]string, error) {
 	buffered := bufio.NewReaderSize(reader, 4<<20)
+
 	header := make([]byte, len(cyclicCoverCorpusMagic))
 
 	_, err := io.ReadFull(buffered, header)
