@@ -50,6 +50,8 @@ type PackedBlob[T PointerType] struct {
 	blob     []byte
 }
 
+type packResearchHook func(entries []string, representatives, roots []int32, prefix, suffix []uint64, length []uint8, chains *rootChains) error
+
 var (
 	ErrTooManyStrings = errors.New("too many strings to pack")
 	ErrBlobTooLarge   = errors.New("packed blob exceeds pointer offset range")
@@ -57,16 +59,16 @@ var (
 
 // Pack compresses all strings currently collected in the StringMap into a PackedBlob.
 func (s *StringMap) Pack[T PointerType](options ...PackOptions) (*PackedBlob[T], error) {
-	return s.pack[T](nil, options...)
+	return s.pack[T](nil, nil, options...)
 }
 
 // PackWithBlobSizeBound packs the strings and additionally calculates a
 // certified size bound for the final deduplicated, containment-reduced roots.
 func (s *StringMap) PackWithBlobSizeBound[T PointerType](bound *BlobSizeBound, options ...PackOptions) (*PackedBlob[T], error) {
-	return s.pack[T](bound, options...)
+	return s.pack[T](bound, nil, options...)
 }
 
-func (s *StringMap) pack[T PointerType](requestedBound *BlobSizeBound, options ...PackOptions) (*PackedBlob[T], error) {
+func (s *StringMap) pack[T PointerType](requestedBound *BlobSizeBound, researchHook packResearchHook, options ...PackOptions) (*PackedBlob[T], error) {
 	s.mx.RLock()
 	defer s.mx.RUnlock()
 
@@ -342,6 +344,13 @@ func (s *StringMap) pack[T PointerType](requestedBound *BlobSizeBound, options .
 	)
 
 	refineSmallRootSet(entries, uniqueRepresentative, roots, chains)
+
+	if researchHook != nil {
+		err := researchHook(entries, uniqueRepresentative, roots, rPrefix, rSuffix, rLen, chains)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	rCandidates = nil
 
